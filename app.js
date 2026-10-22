@@ -45,6 +45,8 @@ const ICONS = {
   sort: '<path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="M11 4h10"/><path d="M11 8h7"/><path d="M11 12h4"/>',
   cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
   play: '<polygon points="7 4 20 12 7 20 7 4"/>',
+  layers: '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+  chevron: '<path d="m6 9 6 6 6-6"/>',
   marker: '<path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
 };
@@ -52,12 +54,12 @@ const icon = (name, fill = false) =>
   `<svg viewBox="0 0 24 24" fill="${fill ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 
 const SOORTEN = Object.entries(PROMPT_SOORTEN).map(([id, s]) => ({ id, ...s }));
-const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster'], ['gebruikt', 'Content-archief'], ['archief', 'Archief']];
+const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster'], ['gebruikt', 'Gebruikt'], ['archief', 'Archief']];
 // The feed shows what you have not turned into content or archived yet.
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '22 okt 2026, 21:30';
+const VERSIE = '22 okt 2026, 22:00';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
 const OBSIDIAN_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)';
 
@@ -128,6 +130,9 @@ const S = {
   reviewHl: new Map(),
   itemFrom: null,
   productie: null,
+  openStacks: new Set(),
+  archiefSoort: null,
+  conceptFrom: 'studio',
 };
 
 let toastTimer;
@@ -512,6 +517,7 @@ async function onRoute() {
   if (S.view === 'deel') return handleShare();
   // A newly opened item starts at the top; back in the feed you land where you were.
   if (S.view === 'item' && prev !== 'item') S.itemFrom = prev;
+  if (S.view === 'concept' && !['concept', 'item'].includes(prev)) S.conceptFrom = prev;
   // Done with a production: a fresh start for the next selection.
   if (prev === 'studio' && !['studio', 'concept'].includes(S.view) && S.vault && S.productie?.key === productionKey()) {
     S.selected.clear();
@@ -665,7 +671,17 @@ function foldersView() {
         <div class="row">${icon(f.naam === 'Inbox' ? 'inbox' : 'folder')}<h3 style="margin:0;flex:1">${esc(f.naam)}</h3><span class="muted">${f.aantal}</span></div>
         ${bundlesFor(bundleModel(), f.naam).length ? `<div class="tags" style="margin-top:8px">${bundlesFor(bundleModel(), f.naam).map((b) => `<span class="tag">#${esc(b.naam)}</span>`).join('')}</div>` : ''}
       </div>`).join('')}
+      ${archiveFolderHtml()}
     </div>`;
+}
+
+// The content archive as a folder: a little stack, one card per piece of content.
+function archiveFolderHtml() {
+  const prods = archivedProductions();
+  return `<div class="card archive-folder" data-action="nav" data-href="#/archief">
+    <div class="row">${icon('layers')}<h3 style="margin:0;flex:1">Content-archief</h3><span class="muted">${prods.length}</span></div>
+    <p class="small muted" style="margin-top:6px">${prods.length ? `Laatst: ${esc(prods[0].label)}, ${esc(prods[0].titel)}` : 'Wat je van je bronnen maakte, als stapeltjes.'}</p>
+  </div>`;
 }
 
 function folderOptions(current) {
@@ -747,20 +763,66 @@ function usedInHtml(d) {
 }
 
 // The content archive: what you made, with its sources, newest first.
-function archiveHtml() {
-  const v = S.vault;
-  const concepts = v.concepts();
-  const files = new Set(concepts.map((c) => c.file));
-  const known = new Set(v.content.map((p) => p.file));
-  const prods = v.content.filter((p) => files.has(p.file));
-  const older = concepts.filter((c) => !known.has(c.file));
-  const rows = prods.slice(0, 40).map(productionRow).join('')
-    + older.slice(0, 20).map((c) => `<div class="concept-row" data-action="nav" data-href="#/concept/${encodeURIComponent(c.file)}"><span class="soort">${esc(c.soort)}</span><span style="flex:1">${esc(c.titel)}</span><span class="small muted">${esc(c.datum)}</span></div>`).join('');
+// Productions whose note still exists (removed in Obsidian means gone here too).
+function archivedProductions() {
+  if (!S.vault) return [];
+  const files = new Set(S.vault.concepts().map((c) => c.file));
+  return S.vault.content.filter((p) => files.has(p.file));
+}
+
+function recentHtml() {
+  const prods = archivedProductions();
   return `<div class="panel">
-    <h3>Content-archief</h3>
-    <p class="small muted">Elke prompt die je kopieert, komt hier met zijn bronnen. Die bronnen verdwijnen uit je feed; je vindt ze terug onder Content-archief en via zoeken.</p>
-    ${rows || '<p class="muted small">Nog niets gemaakt.</p>'}
+    <h3>Laatst gemaakt</h3>
+    ${prods.slice(0, 3).map(productionRow).join('') || '<p class="muted small">Nog niets. Zodra je een prompt kopieert, komen de bronnen als stapeltje in je Content-archief.</p>'}
+    ${prods.length ? `<button class="btn ghost" data-action="nav" data-href="#/archief" style="margin-top:6px">${icon('layers')}Alles in Content-archief</button>` : ''}
   </div>`;
+}
+
+// Small overlapping previews of the sources on a closed stack.
+function facesHtml(sources) {
+  return `<span class="faces">${sources.slice(0, 5).map(thumbHtml).join('')}${sources.length > 5 ? `<span class="thumb mono more">+${sources.length - 5}</span>` : ''}</span>`;
+}
+
+function stackHtml(p) {
+  const open = S.openStacks.has(p.file);
+  const sources = p.bronnen.map((id) => S.items.find((i) => i.id === id)).filter(Boolean);
+  const n = sources.length;
+  return `<section class="stack ${open ? 'open' : ''}" data-n="${Math.min(n, 3)}">
+    <div class="stack-top" data-action="stack" data-v="${esc(p.file)}" role="button" aria-expanded="${open}">
+      <div class="card-top"><span class="type">${esc(p.label)}</span><span>${shortDate(p.datum)}</span>${p.klaar ? '' : '<span class="pill" title="Resultaat nog niet bewaard">prompt</span>'}</div>
+      <h3>${esc(p.titel)}</h3>
+      ${p.onderwerpen?.length ? `<div class="tags">${p.onderwerpen.slice(0, 4).map((o) => `<span class="tag">#${esc(o)}</span>`).join('')}</div>` : ''}
+      <div class="stack-foot">${facesHtml(sources)}<span class="small muted">${n} bron${n === 1 ? '' : 'nen'}</span><span class="chev">${icon('chevron')}</span></div>
+    </div>
+    ${open ? `<div class="stack-cards">
+      ${sources.map(card).join('') || '<p class="small muted">De bronnen zijn verwijderd.</p>'}
+      <div class="make-row">
+        <button class="btn" data-action="nav" data-href="#/concept/${encodeURIComponent(p.file)}">${icon('pen')}${p.klaar ? 'Bekijk resultaat' : 'Resultaat toevoegen'}</button>
+        <button class="btn" data-action="reuse-sources" data-v="${esc(p.file)}">${icon('sparkle')}Maak iets anders</button>
+      </div>
+    </div>` : ''}
+  </section>`;
+}
+
+function archiefView() {
+  const v = S.vault;
+  const prods = archivedProductions();
+  const soorten = [...new Set(prods.map((p) => p.label))];
+  if (S.archiefSoort && !soorten.includes(S.archiefSoort)) S.archiefSoort = null;
+  const shown = S.archiefSoort ? prods.filter((p) => p.label === S.archiefSoort) : prods;
+  const known = new Set(v.content.map((p) => p.file));
+  const older = v.concepts().filter((c) => !known.has(c.file));
+  const bronnen = new Set(prods.flatMap((p) => p.bronnen)).size;
+  const chip = (val, label, n) => `<button class="chip ${S.archiefSoort === val ? 'on' : ''}" data-action="archief-soort" data-v="${esc(val ?? '')}">${esc(label)}<span class="n">${n}</span></button>`;
+  return `<div class="topbar">
+      <button class="icon-btn mobile-only" data-action="nav" data-href="#/mappen" aria-label="Terug">${icon('back')}</button>
+      <div style="flex:1;min-width:0"><span class="dateline">${prods.length} ${prods.length === 1 ? 'stuk' : 'stukken'} content · ${bronnen} bronnen</span><h1>Content-archief</h1></div>
+    </div>
+    ${soorten.length > 1 ? `<div class="chips">${chip(null, 'Alles', prods.length)}${soorten.map((l) => chip(l, l, prods.filter((p) => p.label === l).length)).join('')}</div>` : ''}
+    <div class="stacks">${shown.map(stackHtml).join('') || '<div class="empty"><h2>Nog niets gemaakt</h2><p>Kies bronnen in de feed en maak een prompt in de Studio. Zodra je hem kopieert, komt hier een stapeltje met die bronnen.</p></div>'}</div>
+    ${older.length ? `<div class="panel"><h3>Eerder bewaarde concepten</h3>${older.slice(0, 30).map((c) => `<div class="concept-row" data-action="nav" data-href="#/concept/${encodeURIComponent(c.file)}"><span class="soort">${esc(c.soort)}</span><span style="flex:1">${esc(c.titel)}</span><span class="small muted">${esc(c.datum)}</span></div>`).join('')}</div>` : ''}
+    ${statsHtml()}`;
 }
 
 function statsHtml() {
@@ -854,15 +916,14 @@ function studioView() {
         <button class="btn" data-action="open-chat" data-v="chatgpt">${icon('external')}Kopieer en open ChatGPT</button>
       </div>
       ${S.productie?.key === productionKey()
-        ? `<div class="notice small"><b>In je content-archief.</b> ${S.selected.size === 1 ? 'De bron staat' : `De ${S.selected.size} bronnen staan`} nu onder Content-archief, niet meer in je feed. <button class="link-btn" data-action="undo-production" data-v="${esc(S.productie.file)}">Ongedaan maken</button></div>`
-        : '<p class="small muted">Zodra je de prompt kopieert, gaan de bronnen samen naar je content-archief.</p>'}
+        ? `<div class="notice small"><b>In je content-archief.</b> ${S.selected.size === 1 ? 'De bron staat' : `De ${S.selected.size} bronnen staan`} nu als stapeltje in je Content-archief (bij Mappen), niet meer in je feed. <button class="link-btn" data-action="undo-production" data-v="${esc(S.productie.file)}">Ongedaan maken</button></div>`
+        : '<p class="small muted">Zodra je de prompt kopieert, gaan de bronnen als stapeltje naar je Content-archief.</p>'}
       <textarea id="prompt-text" rows="10" readonly>${esc(S.prompt)}</textarea>
       <div class="field"><label for="resultaat">Resultaat bewaren (optioneel)</label>
         <textarea id="resultaat" rows="6" placeholder="Plak hier wat Claude of ChatGPT schreef. Het komt in Concepten/ bij de bronnen.">${esc(S.resultaat)}</textarea></div>
       <button class="btn block" data-action="save-result">${icon('check')}Bewaar resultaat</button>
     </div>` : ''}
-    ${archiveHtml()}
-    ${statsHtml()}`;
+    ${recentHtml()}`;
 }
 
 // A production shows its result (or a field to paste it), its topics and
@@ -873,7 +934,9 @@ function conceptView() {
   const p = productionByFile(c.file);
   const sources = p ? p.bronnen.map((id) => S.items.find((i) => i.id === id)).filter(Boolean) : [];
   return `<div class="detail">
-    <button class="btn ghost back" data-action="nav" data-href="#/studio">${icon('back')}Studio</button>
+    ${S.conceptFrom === 'archief'
+      ? `<button class="btn ghost back" data-action="nav" data-href="#/archief">${icon('back')}Content-archief</button>`
+      : `<button class="btn ghost back" data-action="nav" data-href="#/studio">${icon('back')}Studio</button>`}
     <div class="row" style="justify-content:space-between"><span class="type">${esc(p?.label || c.soort || '')}${p ? ` · ${esc(shortDate(p.datum))}` : ''}</span>${!p || p.klaar ? `<button class="btn" data-action="copy-concept">${icon('copy')}Kopieer</button>` : ''}</div>
     <h2>${esc(c.titel || c.file)}</h2>
     ${p?.onderwerpen?.length ? `<div class="tags" style="margin:2px 0 12px">${p.onderwerpen.map((o) => `<span class="tag">#${esc(o)}</span>`).join('')}</div>` : ''}
@@ -1042,7 +1105,7 @@ function syncText() {
 
 function sidebarHtml() {
   const nav = (href, ic, label, active, count = '') => `<a class="nav-item ${active ? 'active' : ''}" href="${href}">${icon(ic)}${label}${count !== '' ? `<span class="count">${count}</span>` : ''}</a>`;
-  const onFeed = (S.view === 'feed' || (S.view === 'item' && !['vandaag', 'concept'].includes(S.itemFrom))) && !S.map;
+  const onFeed = (S.view === 'feed' || (S.view === 'item' && !['vandaag', 'concept', 'archief'].includes(S.itemFrom))) && !S.map;
   return `<div class="brand"><img src="icon.svg" alt=""><div>Contentmachine<small>NinA AI Agency</small></div></div>
     <button class="btn primary block" data-action="add" style="margin-bottom:10px">${icon('plus')}Bewaar link of idee</button>
     ${nav('#/', 'feed', 'Feed', onFeed, S.items.filter(isActive).length)}
@@ -1052,6 +1115,7 @@ function sidebarHtml() {
     <div class="nav-label">Mappen</div>
     ${folderList().map((f) => nav(`#/map/${encodeURIComponent(f.naam)}`, f.naam === 'Inbox' ? 'inbox' : 'folder', esc(f.naam), S.map === f.naam && (S.view === 'map' || S.view === 'item'), f.aantal)
       + (S.map === f.naam ? bundlesFor(bundleModel(), f.naam).map((b) => `<button class="nav-item sub ${S.bundel === b.naam ? 'active' : ''}" data-action="bundel" data-v="${esc(b.naam)}">#${esc(b.naam)}</button>`).join('') : '')).join('')}
+    ${nav('#/archief', 'layers', 'Content-archief', S.view === 'archief' || (S.view === 'item' && S.itemFrom === 'archief'), archivedProductions().length || '')}
     <button class="nav-item muted" data-action="new-folder">${icon('plus')}Nieuwe map</button>
     <div class="small muted" id="sync-side" style="margin-top:auto;padding:12px 10px 0">${syncText()}</div>`;
 }
@@ -1060,10 +1124,11 @@ function tabbarHtml() {
   const tab = (href, ic, label, active, badge = 0) => `<button class="tab ${active ? 'active' : ''}" data-action="nav" data-href="${href}"><span class="tab-icon">${icon(ic)}${badge === true ? '<span class="badge dot"></span>' : badge ? `<span class="badge">${badge}</span>` : ''}</span>${label}</button>`;
   const fromToday = S.view === 'item' && S.itemFrom === 'vandaag';
   const fromStudio = S.view === 'item' && S.itemFrom === 'concept';
+  const fromArchive = S.view === 'item' && S.itemFrom === 'archief';
   return `<nav class="tabbar">
-    ${tab('#/', 'feed', 'Feed', S.view === 'feed' || (S.view === 'item' && !S.map && !fromToday && !fromStudio))}
+    ${tab('#/', 'feed', 'Feed', S.view === 'feed' || (S.view === 'item' && !S.map && !fromToday && !fromStudio && !fromArchive))}
     ${tab('#/vandaag', 'sun', 'Vandaag', S.view === 'vandaag' || fromToday, reviewWaiting())}
-    ${tab('#/mappen', 'grid', 'Mappen', S.view === 'mappen' || S.view === 'map')}
+    ${tab('#/mappen', 'grid', 'Mappen', S.view === 'mappen' || S.view === 'map' || S.view === 'archief' || fromArchive)}
     ${tab('#/studio', 'pen', 'Studio', S.view === 'studio' || S.view === 'concept' || fromStudio, S.selected.size)}
     ${tab('#/instellingen', 'settings', 'Instellingen', S.view === 'instellingen')}
   </nav>`;
@@ -1149,6 +1214,8 @@ function render() {
   else if (S.view === 'instellingen') main = settingsView();
   else if (S.view === 'mappen') main = desktop ? feedView() : foldersView();
   else if (S.view === 'vandaag') main = vandaagView();
+  else if (S.view === 'archief') main = archiefView();
+  else if (S.view === 'item' && desktop && S.itemFrom === 'archief') main = archiefView();
   else if (S.view === 'item' && !desktop) main = detailHtml();
   else if (S.view === 'item' && S.itemFrom === 'vandaag') main = vandaagView();
   else if (S.view === 'item' && S.itemFrom === 'concept' && S.concept) main = conceptView();
@@ -1683,14 +1750,24 @@ const actions = {
     if (S.view === 'concept' && !confirm('Uit je content-archief halen? De bronnen gaan terug naar je feed en de notitie in Concepten verdwijnt.')) return;
     await undoProduction(p);
     toast('Uit je content-archief gehaald, de bronnen staan weer in je feed');
-    if (S.view === 'concept') go('#/studio');
+    if (S.view === 'concept') go(S.conceptFrom === 'archief' ? '#/archief' : '#/studio');
     else render();
   },
-  'reuse-sources': () => {
-    const p = productionByFile(S.concept.file);
+  'reuse-sources': (el) => {
+    const p = productionByFile(el.dataset.v || S.concept.file);
+    if (!p) return;
     S.selected = new Set(p.bronnen.filter((id) => S.vault.has(id)));
     S.prompt = '';
     go('#/studio');
+  },
+  stack: (el) => {
+    const f = el.dataset.v;
+    S.openStacks.has(f) ? S.openStacks.delete(f) : S.openStacks.add(f);
+    render();
+  },
+  'archief-soort': (el) => {
+    S.archiefSoort = el.dataset.v || null;
+    render();
   },
   unuse: () => patchItem(S.detail.id, { status: 'gelezen' }).then((m) => m && toast('Staat weer in je feed')),
   'search-topic': (el) => {

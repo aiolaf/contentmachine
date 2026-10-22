@@ -202,13 +202,14 @@ Heb je hier eerder content over gemaakt, dan staat dat in de prompt onder "Wat i
 
 Zodra je een prompt kopieert (of opent in Claude of ChatGPT), worden de gekozen bronnen samen één stuk content:
 
-- Ze verdwijnen uit je feed (filter **Actueel**) en staan onder het filter **Content-archief**, met een groen label van wat je ervan maakte. Zoeken vindt ze nog steeds.
+- Ze verdwijnen uit je feed (filter **Actueel**). Onder **Mappen** staat de map **Content-archief**: elk stuk content is daar een stapeltje kaarten met de bronnen erin. Tik op een stapeltje om het open te klappen; je ziet de bronnen, opent ze, of maakt er iets anders van. Filter op soort (LinkedIn post, TikTok script...).
+- In de feed vind je ze ook via het filter **Gebruikt**, met een groen label van wat je ervan maakte, en via zoeken.
 - In `Concepten/` komt een notitie, bijvoorbeeld `2026-10-22 LinkedIn post - Claude en Duet.md`, met links naar de bronnen en de onderwerpen als tags. Elke bron krijgt de eigenschap `gebruikt_in` met een link terug. In Obsidian zie je de bundel dus van twee kanten.
 - Plak je later het resultaat (in de Studio of op de notitie zelf), dan komt dat bovenaan de notitie.
 - Je kunt de bronnen gewoon opnieuw gebruiken: **Maak iets anders met deze bronnen**, of selecteer ze los. Elk nieuw stuk komt er apart bij.
 - Per ongeluk? **Ongedaan maken** zet de bronnen terug in je feed en haalt de notitie weg. Eén item terugzetten kan ook: **Zet terug in de feed**.
 
-**Wat je maakt** in de Studio laat zien hoeveel content je maakte, per soort en per onderwerp ("#Claude: LinkedIn post 3, TikTok script 1"), en welke onderwerpen je vaak bewaart maar nog nooit gebruikte. Tik op zo'n onderwerp om die items te zien.
+**Wat je maakt**, onderaan het Content-archief, laat zien hoeveel content je maakte, per soort en per onderwerp ("#Claude: LinkedIn post 3, TikTok script 1"), en welke onderwerpen je vaak bewaart maar nog nooit gebruikte. Tik op zo'n onderwerp om die items te zien.
 
 Gebruiken telt als sterkste signaal voor de ranking: items over dezelfde onderwerpen, makers en bronnen stijgen. Het logboek staat in `_systeem/content.json`.
 

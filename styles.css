@@ -271,6 +271,32 @@ mark { background: var(--marker); color: inherit; border-radius: 2px; padding: 0
 .chips.wrap { flex-wrap: wrap; overflow: visible; margin-top: 6px; }
 .section-title { font-family: var(--serif); font-size: 18px; margin: 22px 0 10px; }
 
+/* ---------- archive: stacks of cards ---------- */
+.stacks { display: grid; gap: 26px; padding-bottom: 8px; }
+.stack { position: relative; }
+.stack-top { position: relative; z-index: 3; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 15px 12px; box-shadow: var(--shadow); cursor: pointer; transition: transform .15s; }
+.stack-top:hover { transform: translateY(-1px); }
+.stack-top h3 { margin: 2px 0 8px; font-family: var(--serif); font-size: 20px; line-height: 1.25; letter-spacing: -0.012em; }
+/* The cards underneath peek out at the bottom. */
+.stack::before, .stack::after { content: ""; position: absolute; height: 40px; background: var(--card); border: 1px solid var(--border); border-radius: 0 0 var(--radius) var(--radius); box-shadow: var(--shadow); transition: opacity .15s; }
+.stack::before { left: 9px; right: 9px; bottom: -7px; z-index: 2; background: #fbf8f1; }
+.stack::after { left: 18px; right: 18px; bottom: -14px; z-index: 1; background: #f7f2e7; }
+.stack[data-n="0"]::before, .stack[data-n="1"]::before, .stack[data-n="0"]::after, .stack[data-n="1"]::after, .stack[data-n="2"]::after { display: none; }
+.stack.open::before, .stack.open::after { opacity: 0; }
+.stack-foot { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.stack-foot .chev { margin-left: auto; display: inline-flex; color: var(--muted); transition: transform .2s; }
+.stack.open .chev { transform: rotate(180deg); }
+.faces { display: inline-flex; padding-left: 8px; }
+.faces .thumb, .faces .thumb.avatar { width: 32px; height: 32px; border-radius: 8px; margin-left: -8px; border: 2px solid var(--card); box-shadow: 0 1px 3px rgba(60, 45, 20, .18); }
+.faces .thumb.mono { font-size: 15px; }
+.faces .thumb.more { font-family: var(--font); font-size: 11px; font-weight: 700; color: var(--muted); background: var(--bg); border-color: var(--card); }
+.stack-cards { display: grid; gap: 10px; margin: 10px 0 0 10px; padding: 4px 0 2px 12px; border-left: 3px solid var(--marker); animation: fan .22s ease-out; }
+@keyframes fan { from { opacity: 0; transform: translateY(-8px); } }
+.card.archive-folder { display: block; margin-bottom: 8px; box-shadow: 0 7px 0 -3px #fbf8f1, 0 7px 0 -2px var(--border-strong), var(--shadow); }
+.archive-folder svg { color: var(--accent); }
+.archive-folder p { -webkit-line-clamp: 1; }
+.archive-folder p { margin: 0; }
+
 /* ---------- studio ---------- */
 .seg { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
 .seg button { border: 1px solid var(--border-strong); background: var(--card); padding: 12px; border-radius: 12px; cursor: pointer; text-align: left; }
