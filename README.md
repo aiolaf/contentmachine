@@ -105,6 +105,32 @@ Een nieuw item gaat naar een map via twee signalen:
 
 Twijfelt de app, dan blijft het item in **Inbox** staan tot jij het verplaatst. Zo leert het model weer bij. Tags komen uit de woorden die het meest kenmerkend zijn voor het item, de samenvatting uit de eerste zinnen.
 
+## Bundels: ordenen op hashtags
+
+Binnen een map groepeert de app items op hashtags. Niet elke hashtag krijgt een eigen overzicht:
+
+- Een hashtag wordt pas een **bundel** als hij bij minstens 3 items in die map staat (de `drempel`, aan te passen).
+- Hashtags die vaak samen voorkomen, worden één bundel. #claude, #anthropic en #claude-code worden zo samen "Claude".
+- Een nieuwe hashtag die vooral samen met een bestaande bundel voorkomt, schuift daar vanzelf bij.
+- Heeft een post eigen #hashtags, dan worden dat de tags en verdwijnen ze uit de titel. Zonder hashtags kiest de app de meest kenmerkende woorden.
+
+In een map zie je de bundels als filter, plus **Overig** voor items zonder bundel. Kies een bundel en tik op **Prompt van deze bundel** voor een prompt met de beste items van dat onderwerp. Op de Mac staan de bundels ook in de zijbalk onder de map.
+
+Met **Bewerk bundels** hernoem je een bundel, pas je de hashtags aan, voeg je er een toe of haal je er een weg. Een weggehaalde bundel komt niet terug: de hashtags gaan naar *Genegeerd*. Alles staat in `_systeem/bundels.md`:
+
+```markdown
+drempel: 3
+
+## AI Nieuws
+
+- Claude: #claude #anthropic #claude-code
+- OpenAI: #openai #gpt
+
+Genegeerd: #nieuws
+```
+
+In Obsidian klik je op een #hashtag in dat bestand om alle items met die hashtag te zien.
+
 ## Hoe de ranking leert
 
 | Actie | Signaal |
@@ -142,6 +168,7 @@ Contentmachine/
   Concepten/                content die je via een prompt liet maken en bewaarde
   _systeem/
     regels.md               trefwoorden per map (pas gerust aan)
+    bundels.md              bundels van hashtags per map
     profiel.md              wie je bent, gaat mee in elke prompt
     stijl.md                hoe je schrijft, gaat mee in elke prompt
     index.json, leren.json  beheert de app zelf
@@ -175,6 +202,8 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | `lib/capture.js` | link herkennen, gratis details en plaatjes ophalen |
 | `lib/embeds.js` | de originele post of video per platform |
 | `lib/classify.js` | regels, naive Bayes, tags, samenvatting |
+| `lib/bundles.js` | bundels op hashtags per map |
+| `lib/shortcut.js` | de iPhone-opdracht als bestand |
 | `lib/learn.js` | zelflerende ranking |
 | `lib/prompts.js` | prompt-generator |
 | `lib/haiku.js` | optionele Claude Haiku-stap |

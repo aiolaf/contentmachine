@@ -5,6 +5,9 @@ import { Vault } from './lib/vault.js';
 import { processCapture, processInbox, backfillPreviews } from './lib/pipeline.js';
 import { embedFor } from './lib/embeds.js';
 import { buildShortcut, inboxApiUrl, SIGN_COMMAND } from './lib/shortcut.js';
+import {
+  parseBundles, stringifyBundles, autoBundle, bundleOf, bundlesFor, setFolderBundles, renameFolderInBundles, OTHER,
+} from './lib/bundles.js';
 import { buildPrompt, chatLinks, SOORTEN as PROMPT_SOORTEN } from './lib/prompts.js';
 import { trainModel } from './lib/classify.js';
 import { STATUSES, getSection } from './lib/frontmatter.js';
@@ -103,6 +106,8 @@ const S = {
   sheet: null,
   sharing: null,
   embed: null,
+  bundel: null,
+  editBundels: null,
   backfilling: false,
   lastLoad: 0,
 };
@@ -174,6 +179,22 @@ function refreshItems() {
   for (const id of S.selected) if (!S.vault.has(id)) S.selected.delete(id);
 }
 
+function bundleModel() {
+  return parseBundles(S.vault?.system['bundels.md'] || '');
+}
+
+// Hashtags that keep coming back in a folder form a bundle on their own.
+function runAutoBundle() {
+  if (!S.vault) return;
+  const { model, changes } = autoBundle(S.items, bundleModel());
+  if (!changes.length) return;
+  S.vault.writeSystem('bundels.md', stringifyBundles(model));
+  const nieuw = changes.filter((c) => c.nieuw);
+  if (nieuw.length === 1) toast(`Nieuwe bundel: ${nieuw[0].naam} in ${nieuw[0].map}`);
+  else if (nieuw.length > 1) toast(`${nieuw.length} nieuwe bundels gemaakt`);
+  else toast(`Bundel ${changes[0].naam} uitgebreid met #${changes[0].tags[0]}`);
+}
+
 function folderList() {
   const counts = new Map(S.vault.folders().map((f) => [f, 0]));
   for (const i of S.items) counts.set(i.map, (counts.get(i.map) || 0) + 1);
@@ -184,6 +205,13 @@ function folderList() {
 function visibleItems() {
   let list = S.items;
   if (S.map) list = list.filter((i) => i.map === S.map);
+  if (S.map && S.bundel) {
+    const model = bundleModel();
+    list = list.filter((i) => {
+      const b = bundleOf(i, model);
+      return S.bundel === OTHER ? !b : b?.naam === S.bundel;
+    });
+  }
   const f = S.filter;
   list = list.filter((i) => (f === 'actief' ? i.status !== 'archief'
     : f === 'nieuw' ? i.status === 'nieuw'
@@ -264,6 +292,7 @@ async function loadVault() {
     S.vault.flush().catch((e) => toast(e.message));
   }
   refreshItems();
+  runAutoBundle();
   backfill();
 }
 
@@ -377,7 +406,11 @@ function route() {
   S.view = view || 'feed';
   S.param = decodeURIComponent(rest.join('/'));
   if (S.view === 'feed') S.map = null;
-  if (S.view === 'map') S.map = S.param;
+  if (S.view === 'map') {
+    if (S.map !== S.param) S.bundel = null;
+    S.map = S.param;
+  }
+  if (S.view === 'feed') S.bundel = null;
 }
 
 const go = (hash) => {
@@ -453,13 +486,33 @@ function card(i) {
       </div>
       <h3>${esc(i.titel)}</h3>
       ${i.samenvatting ? `<p>${esc(i.samenvatting)}</p>` : ''}
-      <div class="tags">${S.map ? '' : `<span class="tag">${esc(i.map)}</span>`}${(i.tags || []).slice(0, 3).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
+      <div class="tags">${firstTag(i)}${(i.tags || []).slice(0, 3).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
     </div>
     <div class="card-side">
       ${thumbHtml(i)}
       <button class="select-box" data-action="select" data-id="${esc(i.id)}" aria-label="Selecteer voor een prompt">${icon('check')}</button>
     </div>
   </article>`;
+}
+
+function firstTag(i) {
+  const b = bundleOf(i, bundleModel());
+  if (S.map) return b ? `<span class="tag">${esc(b.naam)}</span>` : '';
+  return `<span class="tag">${esc(i.map)}${b ? ` / ${esc(b.naam)}` : ''}</span>`;
+}
+
+// Bundle filter for the open folder: all, each bundle, items in no bundle.
+function bundleChipsHtml() {
+  if (!S.map) return '';
+  const model = bundleModel();
+  const list = bundlesFor(model, S.map);
+  const inFolder = S.items.filter((i) => i.map === S.map && i.status !== 'archief');
+  const count = (b) => inFolder.filter((i) => bundleOf(i, model)?.naam === b.naam).length;
+  const other = inFolder.filter((i) => !bundleOf(i, model)).length;
+  const chip = (v, label, n) => `<button class="chip ${S.bundel === v ? 'on' : ''}" data-action="bundel" data-v="${esc(v ?? '')}">${label}${n !== undefined ? `<span class="n">${n}</span>` : ''}</button>`;
+  return `${chip(null, 'Alle onderwerpen')}${list.map((b) => chip(b.naam, `#${esc(b.naam)}`, count(b))).join('')}${list.length && other ? chip(OTHER, 'Overig', other) : ''}
+    <button class="chip ghost" data-action="edit-bundels">${list.length ? 'Bewerk bundels' : '+ Bundel'}</button>
+    ${S.bundel && S.bundel !== OTHER ? `<button class="chip accent" data-action="prompt-bundel">${icon('sparkle')}Prompt van deze bundel</button>` : ''}`;
 }
 
 function listHtml() {
@@ -498,6 +551,7 @@ function feedView() {
       <button class="btn" data-action="sort" title="Sortering">${icon('sort')}${SORTS[S.sort]}</button>
     </div>
     <label class="search">${icon('search')}<input id="q" type="search" placeholder="Zoek in titels, tags en samenvattingen" value="${esc(S.q)}" autocomplete="off"></label>
+    ${S.map && S.map !== 'Inbox' ? `<div class="chips bundles" id="bundles">${bundleChipsHtml()}</div>` : ''}
     <div class="chips" id="chips">${chipsHtml()}</div>
     <div class="list" id="list">${listHtml()}</div>`;
 }
@@ -507,6 +561,7 @@ function foldersView() {
     <div class="list">${folderList().map((f) => `
       <div class="card" data-action="nav" data-href="#/map/${encodeURIComponent(f.naam)}">
         <div class="row">${icon(f.naam === 'Inbox' ? 'inbox' : 'folder')}<h3 style="margin:0;flex:1">${esc(f.naam)}</h3><span class="muted">${f.aantal}</span></div>
+        ${bundlesFor(bundleModel(), f.naam).length ? `<div class="tags" style="margin-top:8px">${bundlesFor(bundleModel(), f.naam).map((b) => `<span class="tag">#${esc(b.naam)}</span>`).join('')}</div>` : ''}
       </div>`).join('')}
     </div>`;
 }
@@ -703,10 +758,10 @@ function settingsView() {
       ${corrections.length ? `<div class="small">Laatste correcties</div><ul class="small muted">${corrections.map((x) => `<li>${esc(x.titel)}: ${esc(x.van)} naar ${esc(x.naar)}</li>`).join('')}</ul>` : ''}
     </div>
 
-    ${['regels', 'profiel', 'stijl'].map((name) => `<div class="panel">
-      <h3>${{ regels: 'Regels voor mappen', profiel: 'Profiel', stijl: 'Stijlgids' }[name]}</h3>
-      <p class="small muted">${{ regels: 'Map: woord, woord. Zo komen nieuwe items op de juiste plek tot het model genoeg van je heeft geleerd.', profiel: 'Wie je bent. Gaat mee in elke prompt.', stijl: 'Hoe je schrijft. Gaat mee in elke prompt.' }[name]} Staat ook in Obsidian als _systeem/${name}.md.</p>
-      <textarea id="sys-${name}" rows="${name === 'regels' ? 12 : 9}">${esc(v.system[`${name}.md`])}</textarea>
+    ${['regels', 'bundels', 'profiel', 'stijl'].map((name) => `<div class="panel">
+      <h3>${{ regels: 'Regels voor mappen', bundels: 'Bundels (hashtags per map)', profiel: 'Profiel', stijl: 'Stijlgids' }[name]}</h3>
+      <p class="small muted">${{ regels: 'Map: woord, woord. Zo komen nieuwe items op de juiste plek tot het model genoeg van je heeft geleerd.', bundels: 'Per map: "- Naam: #hashtag #hashtag". "drempel" is het aantal items waarna een hashtag een bundel wordt. Bewerken kan ook per map via Bewerk bundels.', profiel: 'Wie je bent. Gaat mee in elke prompt.', stijl: 'Hoe je schrijft. Gaat mee in elke prompt.' }[name]} Staat ook in Obsidian als _systeem/${name}.md.</p>
+      <textarea id="sys-${name}" rows="${name === 'profiel' || name === 'stijl' ? 9 : 12}">${esc(v.system[`${name}.md`])}</textarea>
       <div class="row" style="margin-top:8px"><button class="btn primary" data-action="save-system" data-v="${name}">Bewaar</button></div>
     </div>`).join('')}
 
@@ -755,7 +810,8 @@ function sidebarHtml() {
     ${nav('#/studio', 'pen', 'Studio', S.view === 'studio' || S.view === 'concept', S.selected.size || '')}
     ${nav('#/instellingen', 'settings', 'Instellingen', S.view === 'instellingen')}
     <div class="nav-label">Mappen</div>
-    ${folderList().map((f) => nav(`#/map/${encodeURIComponent(f.naam)}`, f.naam === 'Inbox' ? 'inbox' : 'folder', esc(f.naam), S.map === f.naam && (S.view === 'map' || S.view === 'item'), f.aantal)).join('')}
+    ${folderList().map((f) => nav(`#/map/${encodeURIComponent(f.naam)}`, f.naam === 'Inbox' ? 'inbox' : 'folder', esc(f.naam), S.map === f.naam && (S.view === 'map' || S.view === 'item'), f.aantal)
+      + (S.map === f.naam ? bundlesFor(bundleModel(), f.naam).map((b) => `<button class="nav-item sub ${S.bundel === b.naam ? 'active' : ''}" data-action="bundel" data-v="${esc(b.naam)}">#${esc(b.naam)}</button>`).join('') : '')).join('')}
     <button class="nav-item muted" data-action="new-folder">${icon('plus')}Nieuwe map</button>
     <div class="small muted" id="sync-side" style="margin-top:auto;padding:12px 10px 0">${syncText()}</div>`;
 }
@@ -770,7 +826,34 @@ function tabbarHtml() {
   </nav>`;
 }
 
+function bundleSheetHtml() {
+  const entry = bundleModel().folders.get(S.map);
+  const ignored = entry ? [...entry.genegeerd] : [];
+  return `<div class="overlay" data-action="close-sheet">
+    <div class="sheet" data-stop style="max-height:88dvh;overflow-y:auto">
+      <h2>Bundels in ${esc(S.map)}</h2>
+      <p class="small muted">Een bundel groepeert items op hashtags. Nieuwe bundels ontstaan vanzelf zodra hashtags vaak samen voorkomen. Hier pas je ze aan.</p>
+      ${S.editBundels.map((b, i) => `<div class="bundle-row">
+        <input id="bn-${i}" value="${esc(b.naam)}" placeholder="Naam" autocomplete="off">
+        <input id="bt-${i}" value="${esc(b.tags.map((t) => `#${t}`).join(' '))}" placeholder="#hashtag #nog-een" autocapitalize="off" autocomplete="off">
+        <button class="icon-btn" data-action="bundle-remove" data-v="${i}" aria-label="Verwijder bundel">${icon('trash')}</button>
+      </div>`).join('') || '<p class="small muted">Nog geen bundels in deze map.</p>'}
+      <button class="btn ghost" data-action="bundle-add">${icon('plus')}Bundel toevoegen</button>
+      ${ignored.length ? `<p class="small muted">Genegeerd: ${ignored.map((t) => `#${esc(t)}`).join(' ')}</p>` : ''}
+      <div class="row" style="margin-top:12px"><span style="flex:1"></span><button class="btn ghost" data-action="close-sheet">Annuleer</button><button class="btn primary" data-action="bundle-save">Bewaar</button></div>
+    </div>
+  </div>`;
+}
+
+function readBundleRows() {
+  S.editBundels = S.editBundels.map((b, i) => ({
+    naam: document.getElementById(`bn-${i}`)?.value ?? b.naam,
+    tags: (document.getElementById(`bt-${i}`)?.value ?? b.tags.join(' ')).split(/[\s,]+/).map((t) => t.replace(/^#/, '').toLowerCase()).filter(Boolean),
+  }));
+}
+
 function sheetHtml() {
+  if (S.sheet === 'bundels') return bundleSheetHtml();
   if (S.sheet !== 'add') return '';
   return `<div class="overlay" data-action="close-sheet">
     <div class="sheet" data-stop>
@@ -860,6 +943,8 @@ function renderList() {
   if (list) list.innerHTML = listHtml();
   const chips = $('#chips');
   if (chips) chips.innerHTML = chipsHtml();
+  const bundles = $('#bundles');
+  if (bundles) bundles.innerHTML = bundleChipsHtml();
   const side = $('.sidebar');
   if (side) side.innerHTML = sidebarHtml();
 }
@@ -934,6 +1019,7 @@ async function patchItem(id, body) {
 async function saveInput(input) {
   const meta = await processCapture(S.vault, input, pipelineOpts());
   refreshItems();
+  runAutoBundle();
   S.vault.flush().catch((e) => toast(e.message));
   return meta;
 }
@@ -1095,6 +1181,47 @@ const actions = {
     go(`#/concept/${encodeURIComponent(file)}`);
   },
   'copy-concept': () => copy(S.concept.markdown),
+  bundel: (el) => {
+    S.bundel = el.dataset.v || null;
+    if (S.view !== 'map') return go(`#/map/${encodeURIComponent(S.map)}`);
+    render();
+  },
+  'edit-bundels': () => {
+    S.editBundels = bundlesFor(bundleModel(), S.map).map((b) => ({ naam: b.naam, tags: [...b.tags] }));
+    S.sheet = 'bundels';
+    render();
+  },
+  'bundle-add': () => {
+    readBundleRows();
+    S.editBundels.push({ naam: '', tags: [] });
+    render();
+    document.getElementById(`bn-${S.editBundels.length - 1}`)?.focus();
+  },
+  'bundle-remove': (el) => {
+    readBundleRows();
+    S.editBundels.splice(Number(el.dataset.v), 1);
+    render();
+  },
+  'bundle-save': () => {
+    readBundleRows();
+    const next = setFolderBundles(bundleModel(), S.map, S.editBundels);
+    S.vault.writeSystem('bundels.md', stringifyBundles(next));
+    if (S.bundel && !bundlesFor(next, S.map).some((b) => b.naam === S.bundel)) S.bundel = null;
+    S.sheet = null;
+    S.editBundels = null;
+    toast('Bundels bewaard');
+    render();
+  },
+  'prompt-bundel': async () => {
+    const model = bundleModel();
+    const items = S.items.filter((i) => i.map === S.map && i.status !== 'archief' && bundleOf(i, model)?.naam === S.bundel)
+      .sort((a, b) => b.rank - a.rank).slice(0, 8);
+    if (!items.length) return toast('Geen items in deze bundel');
+    S.selected = new Set(items.map((i) => i.id));
+    if (!S.instructie.trim()) S.instructie = `Rode draad: ${S.bundel}.`;
+    await buildCurrentPrompt();
+    go('#/studio');
+  },
   'download-shortcut': () => {
     const xml = buildShortcut({ owner: S.cfg.owner, repo: S.cfg.repo, branch: S.cfg.branch, map: S.cfg.map, token: S.cfg.token });
     const url = URL.createObjectURL(new Blob([xml], { type: 'application/octet-stream' }));
@@ -1150,7 +1277,9 @@ const actions = {
     const naar = prompt(`Nieuwe naam voor "${van}"`, van);
     if (!naar?.trim() || naar === van) return;
     try {
-      await S.vault.renameFolder(van, naar);
+      const dst = await S.vault.renameFolder(van, naar);
+      const model = bundleModel();
+      if (model.folders.has(van)) S.vault.writeSystem('bundels.md', stringifyBundles(renameFolderInBundles(model, van, dst)));
       refreshItems();
       toast('Map hernoemd');
       render();
@@ -1267,7 +1396,8 @@ document.addEventListener('change', async (ev) => {
     const m = await patchItem(S.detail.id, { map });
     if (m) toast(`Verplaatst naar ${m.map}. De machine leert hiervan.`);
   } else if (t.id === 'tags-input') {
-    patchItem(S.detail.id, { tags: t.value.split(',').map((x) => x.trim()).filter(Boolean) });
+    await patchItem(S.detail.id, { tags: t.value.split(/[,\s]+/).map((x) => x.trim().replace(/^#/, '')).filter(Boolean) });
+    runAutoBundle();
   }
 });
 

@@ -97,9 +97,10 @@ test('classify: rules work on day one, the model takes over once you sorted item
 });
 
 test('tags and summary come from the text itself', () => {
-  const tags = suggestTags({ titel: 'Claude Haiku verwerkt facturen', tekst: 'Facturen automatisch verwerken met Claude. #automatisering' }, [{ titel: 'iets anders' }]);
-  assert.ok(tags.includes('automatisering'));
-  assert.ok(tags.includes('facturen'));
+  const tags = suggestTags({ titel: 'Claude Haiku verwerkt facturen', tekst: 'Facturen automatisch verwerken met Claude. #automatisering #ai-agents' }, [{ titel: 'iets anders' }]);
+  assert.deepEqual(tags, ['automatisering', 'ai-agents'], 'own hashtags only');
+  const words = suggestTags({ titel: 'Claude Haiku verwerkt facturen', tekst: 'Facturen automatisch verwerken met Claude.' }, [{ titel: 'iets anders' }]);
+  assert.ok(words.includes('facturen'), 'no hashtags: distinctive words');
   const s = summarize('Menu\nInloggen\nAI-agents nemen steeds meer werk over in het mkb, blijkt uit onderzoek. Vooral administratie gaat snel. Daarna volgt een lange alinea die niet meer past in de samenvatting omdat die te lang is geworden voor de kaart.', 120);
   assert.match(s, /^AI-agents nemen/);
   assert.ok(s.length <= 120);
@@ -173,7 +174,7 @@ test('vault: seeds, saves, moves from Obsidian and survives a reload', async () 
   store.readBlob = async (sha) => (reads++, orig(sha));
   const third = new Vault(store, { root: 'Contentmachine' });
   await third.load();
-  const sysFiles = 6; // profiel, stijl, regels, LEESMIJ, leren, index
+  const sysFiles = 7; // profiel, stijl, regels, bundels, LEESMIJ, leren, index
   assert.equal(reads, sysFiles, 'item properties come from index.json');
   assert.equal(third.list().length, 1);
 });
@@ -357,4 +358,59 @@ test('shortcut: saves straight to the vault Inbox, asks for the token only when 
   assert.ok(!filled.includes('Plak je GitHub-token'));
   assert.ok(filled.includes('github_pat_x&amp;y'), 'token is XML-escaped');
   assert.ok(filled.includes('<key>{7, 1}</key>'), 'token variable sits right after "Bearer "');
+});
+
+test('bundles: frequent hashtags that appear together become one bundle, rare ones do not', async () => {
+  const { parseBundles, stringifyBundles, autoBundle, bundleOf, setFolderBundles, renameFolderInBundles, BUNDELS_SEED, bundleName } = await import('../lib/bundles.js');
+  const items = [];
+  const add = (tags, map = 'AI Agents') => items.push({ id: String(items.length), map, tags, status: 'nieuw' });
+  for (let i = 0; i < 4; i++) add(['claude', 'anthropic', i % 2 ? 'claude-code' : 'llm']);
+  add(['claude', 'claude-code']);
+  for (let i = 0; i < 3; i++) add(['n8n', 'workflow']);
+  add(['eenmalig']);
+  add(['claude'], 'Inbox');
+
+  const { model, changes } = autoBundle(items, parseBundles(BUNDELS_SEED));
+  const bundles = model.folders.get('AI Agents').bundels;
+  const claude = bundles.find((b) => b.tags.includes('claude'));
+  assert.ok(claude, 'claude bundle exists');
+  assert.ok(claude.tags.includes('anthropic') && claude.tags.includes('claude-code'), 'co-occurring tags merged');
+  assert.equal(claude.naam, 'Claude');
+  assert.ok(bundles.find((b) => b.tags.includes('n8n')).tags.includes('workflow'));
+  assert.ok(!bundles.some((b) => b.tags.includes('eenmalig')), 'a one-off hashtag gets no bundle');
+  assert.ok(!model.folders.has('Inbox'), 'Inbox is not bundled');
+  assert.ok(changes.every((c) => c.nieuw));
+  assert.equal(bundleOf({ map: 'AI Agents', tags: ['anthropic'] }, model).naam, 'Claude');
+  assert.equal(bundleOf({ map: 'AI Agents', tags: ['iets'] }, model), null);
+
+  // Round-trip through the Markdown file, readable in Obsidian.
+  const text = stringifyBundles(model);
+  assert.match(text, /^## AI Agents$/m);
+  assert.match(text, /^- Claude: #claude #anthropic/m);
+  assert.deepEqual(parseBundles(text).folders.get('AI Agents').bundels, bundles);
+
+  // Removing a bundle in the editor keeps it from coming back.
+  const edited = setFolderBundles(model, 'AI Agents', [{ naam: 'Claude & Co', tags: ['claude', 'anthropic', 'claude-code', 'llm'] }]);
+  assert.ok(edited.folders.get('AI Agents').genegeerd.has('n8n'));
+  assert.equal(autoBundle(items, edited).changes.length, 0);
+
+  // A new frequent hashtag that travels with an existing bundle joins it.
+  for (let i = 0; i < 3; i++) add(['claude', 'mcp']);
+  const grown = autoBundle(items, edited);
+  assert.deepEqual(grown.changes, [{ map: 'AI Agents', naam: 'Claude & Co', tags: ['mcp'], nieuw: false }]);
+
+  assert.ok(renameFolderInBundles(edited, 'AI Agents', 'Agents').folders.has('Agents'));
+  assert.equal(bundleName('ai-agents'), 'AI agents');
+  assert.equal(bundleName('n8n'), 'n8n');
+  assert.equal(bundleName('openai'), 'OpenAI');
+});
+
+test('hashtags: become the tags and leave the title', async () => {
+  const store = new LocalStore({ storage: memoryStorage() });
+  const vault = new Vault(store, { root: '' });
+  vault.flushDelay = 10_000;
+  await vault.load();
+  const meta = await processCapture(vault, { text: 'Claude werkt nu in Excel #claude #anthropic #excel' }, { fetchImpl: noFetch });
+  assert.equal(meta.titel, 'Claude werkt nu in Excel');
+  assert.deepEqual(meta.tags, ['claude', 'anthropic', 'excel']);
 });

@@ -1,10 +1,10 @@
 // App shell cache: opens instantly on the iPhone, refreshes in the background.
 // Only this app's own files are cached; GitHub and other APIs always go to the network.
-const CACHE = 'cm-v5';
+const CACHE = 'cm-v6';
 const SHELL = [
   './', 'index.html', 'app.js', 'styles.css', 'icon.svg', 'manifest.webmanifest', 'apple-touch-icon.png',
   'lib/frontmatter.js', 'lib/store.js', 'lib/vault.js', 'lib/capture.js', 'lib/classify.js',
-  'lib/learn.js', 'lib/prompts.js', 'lib/pipeline.js', 'lib/seeds.js', 'lib/embeds.js', 'lib/shortcut.js',
+  'lib/learn.js', 'lib/prompts.js', 'lib/pipeline.js', 'lib/seeds.js', 'lib/embeds.js', 'lib/shortcut.js', 'lib/bundles.js',
 ];
 
 self.addEventListener('install', (e) => {

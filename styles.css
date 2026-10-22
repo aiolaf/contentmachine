@@ -80,6 +80,16 @@ code { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 .chip { flex: none; border: 1px solid var(--border-strong); background: transparent; padding: 6px 13px; border-radius: 999px; font-size: 14px; cursor: pointer; white-space: nowrap; color: var(--text); }
 .chip.on { background: var(--text); border-color: var(--text); color: var(--card); }
 .chip .n { opacity: .55; margin-left: 5px; font-variant-numeric: tabular-nums; }
+.chips.bundles { margin-bottom: 6px; }
+.chips.bundles .chip { border-style: dashed; }
+.chips.bundles .chip.on { border-style: solid; background: var(--marker); border-color: #e6c62e; color: var(--text); }
+.chip.ghost { border-color: transparent; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+.chip.accent { display: inline-flex; align-items: center; gap: 6px; border-style: solid !important; border-color: var(--accent); color: var(--accent-ink); }
+.chip.accent svg { width: 14px; height: 14px; }
+.nav-item.sub { padding: 6px 10px 6px 40px; font-size: 14px; color: var(--muted); }
+.nav-item.sub.active { color: var(--text); background: var(--marker); box-shadow: none; }
+.bundle-row { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr) auto; gap: 8px; margin: 8px 0; }
+@media (max-width: 520px) { .bundle-row { grid-template-columns: minmax(0, 1fr) auto; } .bundle-row input:nth-child(2) { grid-column: 1; } .bundle-row .icon-btn { grid-row: 1; grid-column: 2; } }
 
 /* ---------- buttons ---------- */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--border-strong); background: var(--card); padding: 9px 14px; border-radius: 10px; cursor: pointer; font-size: 15px; text-decoration: none; color: var(--text); }
