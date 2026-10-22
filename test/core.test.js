@@ -432,3 +432,129 @@ test('inbox: an empty share is cleaned up, LinkedIn titles are cut to the post',
   const li = await processCapture(vault, { url: 'https://lnkd.in/p/eETGUA-Z' }, { fetchImpl: fake, reader: false });
   assert.equal(li.titel, 'Grok Bot can now build reports, memos, and dashboards.');
 });
+
+test('search: the full text is searched, accents and case do not matter', async () => {
+  const { fold, plainText, parseQuery, matchItem, snippet } = await import('../lib/search.js');
+  assert.equal(fold('Ideeën ÉN Café'), 'ideeen en cafe');
+  assert.deepEqual(parseQuery('#AI "multi agent"  kosten'), ['ai', 'multi agent', 'kosten']);
+  const body = '# Titel\n\n> [!abstract] Samenvatting\n> Kort.\n\n## Bron\n\n[Site](https://x.org)\n\n![](https://x.org/a.jpg)\n\nDe **kosten** van een multi agent systeem vallen mee. Dat zeggen de ideeën uit het onderzoek.';
+  const plain = plainText(body);
+  assert.doesNotMatch(plain, /https|\*\*|!\[|\[!abstract\]/);
+  const text = { plain, folded: fold(plain) };
+  const item = { titel: 'Agents in de zorg', tags: ['ai'], samenvatting: 'Kort.' };
+  assert.equal(matchItem(item, text, parseQuery('ideeen')).inBody, true, 'found in the body only');
+  assert.equal(matchItem(item, null, parseQuery('ideeen')), null, 'not found before the text is loaded');
+  assert.equal(matchItem(item, text, parseQuery('agents zorg')).inBody, false);
+  assert.equal(matchItem(item, text, parseQuery('agents banaan')), null, 'every word must match');
+  assert.ok(matchItem(item, text, ['zorg']).score > matchItem(item, text, ['kosten']).score, 'title beats body');
+  const parts = snippet(plain, parseQuery('"multi agent" ideeen'));
+  assert.deepEqual(parts.filter((x) => x.hit).map((x) => x.t), ['multi agent', 'ideeën']);
+});
+
+test('highlights: saved as a section, notes stay intact, counted and used in prompts', async () => {
+  const { parseHighlights, withHighlights, cleanHighlight } = await import('../lib/highlights.js');
+  const start = '# T\n\n## Mijn notities\n\nmijn idee\n\n## Bron\n\nDe zin die telt. En nog meer.';
+  let body = withHighlights(start, [{ tekst: 'De zin\n die  telt.', notitie: 'Hook voor TikTok' }]);
+  assert.match(body, /## Markeringen\n\n- ==De zin die telt\.==\n {2}Hook voor TikTok\n/);
+  assert.equal(getSection(body, 'Mijn notities'), 'mijn idee', 'notes end before the highlights');
+  assert.equal(getSection(body, 'Bron'), 'De zin die telt. En nog meer.');
+  body = withHighlights(body, [...parseHighlights(body), { tekst: 'En nog meer.', notitie: '' }]);
+  assert.deepEqual(parseHighlights(body), [{ tekst: 'De zin die telt.', notitie: 'Hook voor TikTok' }, { tekst: 'En nog meer.', notitie: '' }]);
+  assert.equal(cleanHighlight('a == b'), 'a = b');
+  // Written by hand in Obsidian, without the == marks.
+  assert.deepEqual(parseHighlights('## Markeringen\n\n- eigen zin\n'), [{ tekst: 'eigen zin', notitie: '' }]);
+  assert.doesNotMatch(withHighlights(body, []), /Markeringen/, 'no highlights, no section');
+
+  const store = new LocalStore({ storage: memoryStorage() });
+  const vault = new Vault(store, { root: '' });
+  vault.flushDelay = 10_000;
+  await vault.load();
+  const item = vault.create({ titel: 'T', map: 'AI' }, start);
+  const m = await vault.update(item.id, {}, { transform: (b) => withHighlights(b, [{ tekst: 'De zin die telt.' }]) });
+  assert.equal(m.markeringen, 1);
+  await vault.flush();
+  const file = store.files.get(m.path).content;
+  assert.match(file, /^markeringen: 1$/m);
+  // Obsidian adds one by hand: the count follows the body on the next visit.
+  await store.external(m.path, file.replace('- ==De zin die telt.==', '- ==De zin die telt.==\n- ==En nog meer.=='));
+  const again = new Vault(store, { root: '' });
+  await again.load();
+  assert.equal(again.meta(item.id).markeringen, 2);
+
+  const prompt = buildPrompt({ soort: 'linkedin', items: [await again.get(item.id)] });
+  assert.match(prompt, /Wat ik markeerde[^\n]*\n- "De zin die telt\."\n- "En nog meer\."/);
+});
+
+test('review: a daily mix that is the same all day and comes back later each time', async () => {
+  const { dailyReview, stopReview, daysUntil, highlightOfDay } = await import('../lib/review.js');
+  const old = (d) => new Date(Date.UTC(2026, 9, 22 - d)).toISOString();
+  const items = [
+    { id: 'a', titel: 'A', rank: 60, opgeslagen: old(30), markeringen: 2 },
+    { id: 'b', titel: 'B', rank: 90, opgeslagen: old(30) },
+    { id: 'c', titel: 'C', rank: 95, opgeslagen: old(30), status: 'archief' },
+    { id: 'd', titel: 'D', rank: 99, opgeslagen: old(0) },
+    { id: 'e', titel: 'E', rank: 50, opgeslagen: old(10) },
+  ];
+  const day1 = new Date(2026, 9, 22, 9);
+  const first = dailyReview(items, undefined, { now: day1, size: 2 });
+  assert.equal(first.changed, true);
+  assert.equal(first.ids.length, 2);
+  assert.ok(!first.ids.includes('c'), 'archived items stay away');
+  assert.ok(!first.ids.includes('d'), 'brand-new items wait');
+  assert.ok(first.ids.includes('a'), 'highlights come back first');
+  const later = dailyReview(items, first.state, { now: new Date(2026, 9, 22, 21), size: 2 });
+  assert.equal(later.changed, false);
+  assert.deepEqual(later.ids, first.ids, 'same mix all day, on every device');
+  assert.equal(daysUntil(first.state, 'a', day1), 7);
+
+  const week = dailyReview(items, first.state, { now: new Date(2026, 9, 29, 9), size: 5 });
+  assert.equal(week.state.items.a.interval, 14, 'shown twice: the wait doubles');
+  const stopped = stopReview(week.state, 'a');
+  const month = dailyReview(items, stopped, { now: new Date(2026, 11, 1, 9), size: 5 });
+  assert.ok(!month.ids.includes('a'), 'stopped items never return');
+  assert.equal(daysUntil(stopped, 'a'), null);
+  const gone = dailyReview(items.filter((i) => i.id !== 'b'), month.state, { now: new Date(2026, 11, 2, 9) });
+  assert.ok(!('b' in gone.state.items), 'deleted items are forgotten');
+
+  const hls = [{ tekst: '1' }, { tekst: '2' }, { tekst: '3' }];
+  assert.equal(highlightOfDay(hls, '2026-10-22', 'a'), highlightOfDay(hls, '2026-10-22', 'a'));
+  assert.equal(highlightOfDay([], '2026-10-22', 'a'), null);
+});
+
+test('vault: note texts are read once per device and kept by sha', async () => {
+  const store = new LocalStore({ storage: memoryStorage() });
+  const seed = new Vault(store, { root: '' });
+  seed.flushDelay = 10_000;
+  await seed.load();
+  const a = seed.create({ titel: 'A', map: 'AI' }, '# A\n\nvolledige tekst over agents');
+  seed.create({ titel: 'B', map: 'AI' }, '# B\n');
+  await seed.flush();
+
+  const cache = new Map();
+  const textCache = { get: async (k) => cache.get(k), set: async (k, v) => cache.set(k, v) };
+  let reads = 0;
+  const orig = store.readBlob.bind(store);
+  store.readBlob = async (sha) => (reads++, orig(sha));
+  const v1 = new Vault(store, { root: '', textCache });
+  await v1.load();
+  assert.equal(v1.cachedText(a.id), null, 'item bodies are not read on load');
+  const before = reads;
+  assert.equal(await v1.loadTexts(), 2);
+  assert.equal(reads - before, 2);
+  assert.match(v1.cachedText(a.id), /volledige tekst over agents/);
+
+  reads = 0;
+  const v2 = new Vault(store, { root: '', textCache });
+  await v2.load();
+  await v2.loadTexts();
+  assert.equal(reads, 0, 'second visit: everything from the device cache');
+  assert.match(v2.cachedText(a.id), /agents/);
+});
+
+test('review: an empty vault does not fix an empty mix for the whole day', async () => {
+  const { dailyReview } = await import('../lib/review.js');
+  const empty = dailyReview([], undefined, { now: new Date(2026, 9, 22, 9) });
+  assert.equal(empty.changed, false);
+  const later = dailyReview([{ id: 'a', titel: 'A', opgeslagen: new Date(2026, 9, 22, 8).toISOString() }], empty.state, { now: new Date(2026, 9, 22, 10) });
+  assert.deepEqual(later.ids, ['a']);
+});

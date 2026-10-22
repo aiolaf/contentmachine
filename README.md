@@ -139,12 +139,46 @@ Genegeerd: #nieuws
 
 In Obsidian klik je op een #hashtag in dat bestand om alle items met die hashtag te zien.
 
+## Premium-functies, gratis
+
+Apps als Raindrop, Instapaper, Matter en Readwise vragen 3 tot 13 dollar per maand voor deze drie. Hier zitten ze er gratis in.
+
+### Zoeken in de volledige tekst
+
+Het zoekveld doorzoekt titels, tags, samenvattingen **en de hele tekst** van elk artikel en elke post, ook je notities en markeringen. Hoofdletters en accenten maken niet uit (`ideeen` vindt `ideeën`). Zet woorden tussen aanhalingstekens voor een exacte zin: `"multi agent"`. Vind je iets alleen in de tekst, dan zie je het stukje eromheen met het woord gemarkeerd.
+
+De app leest elke notitie eenmalig van GitHub en bewaart de tekst op je apparaat (IndexedDB). Daarna is zoeken direct, ook met honderden items. Onder Instellingen, Status, zie je hoeveel notities doorzoekbaar zijn.
+
+### Markeringen met notities
+
+Selecteer tekst in een artikel en tik op **Markeer** of **Met notitie**. Markeringen:
+
+- staan geel in de tekst en in een eigen blok bovenaan,
+- gaan in elke prompt mee onder "Wat ik markeerde", zodat Claude je beste zinnen letterlijk kan gebruiken,
+- staan in de notitie als `==gemarkeerd==`, dus ook geel in Obsidian:
+
+```markdown
+## Markeringen
+
+- ==de grootste winst zit in offertes en planning==
+  Mooie hook voor TikTok
+```
+
+Markeren telt als positief signaal voor de ranking. Op de kaart in de feed zie je hoeveel markeringen een item heeft.
+
+### Vandaag: dagelijkse herhaling
+
+Het tabblad **Vandaag** haalt elke dag 5 bewaarde items terug, met een van je markeringen. Items met markeringen en een hoge score komen eerst; gloednieuwe items wachten een paar dagen. Elke keer dat iets terugkomt, duurt het daarna twee keer zo lang (7, 14, 28 dagen). Per item: **Maak content**, **Lees** of **Niet meer tonen**. Met **Maak een nieuwsbrief van deze mix** gaan alle vijf in één prompt.
+
+De mix staat in `_systeem/herhaling.json`, dus je iPhone en je Mac zien dezelfde vijf.
+
 ## Hoe de ranking leert
 
 | Actie | Signaal |
 | --- | --- |
 | Gebruikt in een bewaard concept | sterk positief |
 | Ster, duim omhoog | positief |
+| Markeren | positief |
 | Openen | licht positief |
 | Archiveren zonder ster | licht negatief |
 | Duim omlaag, verwijderen | negatief |
@@ -158,7 +192,7 @@ In de **Studio** kies je bronnen (het rondje op een kaart, of "Beste van deze we
 
 - je profiel (`_systeem/profiel.md`) en stijlgids (`_systeem/stijl.md`),
 - de opdracht per vorm, waaronder de vaste opbouw van je nieuwsbrief,
-- per bron de titel, link, samenvatting, **je eigen notities** en een fragment.
+- per bron de titel, link, samenvatting, **je eigen notities**, **je markeringen** en een fragment.
 
 Tik op **Kopieer en open Claude** (of ChatGPT) en plak. Wil je het resultaat bewaren? Plak het terug in de app. Het komt dan in `Concepten/` met links naar de bronnen, en de bronnen tellen als gebruikt.
 
@@ -180,9 +214,10 @@ Contentmachine/
     profiel.md              wie je bent, gaat mee in elke prompt
     stijl.md                hoe je schrijft, gaat mee in elke prompt
     index.json, leren.json  beheert de app zelf
+    herhaling.json          de mix van Vandaag en wanneer elk item terugkomt
 ```
 
-Je notities onder **Mijn notities** worden nooit overschreven. Verplaats, hernoem of bewerk gerust in Obsidian. Bij een conflict wint de versie die al op GitHub staat.
+Je notities onder **Mijn notities** en je **Markeringen** worden nooit overschreven. Verplaats, hernoem of bewerk gerust in Obsidian. Bij een conflict wint de versie die al op GitHub staat.
 
 ## Privacy en beperkingen
 
@@ -213,6 +248,10 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | `lib/bundles.js` | bundels op hashtags per map |
 | `lib/shortcut.js` | de iPhone-opdracht als bestand |
 | `lib/learn.js` | zelflerende ranking |
+| `lib/search.js` | zoeken in de volledige tekst |
+| `lib/textcache.js` | teksten op het apparaat bewaren (IndexedDB) |
+| `lib/highlights.js` | markeringen met notities |
+| `lib/review.js` | Vandaag: dagelijkse herhaling |
 | `lib/prompts.js` | prompt-generator |
 | `lib/haiku.js` | optionele Claude Haiku-stap |
 | `lib/frontmatter.js` | YAML-eigenschappen lezen en schrijven |

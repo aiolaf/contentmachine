@@ -10,7 +10,11 @@ import {
 } from './lib/bundles.js';
 import { buildPrompt, chatLinks, SOORTEN as PROMPT_SOORTEN } from './lib/prompts.js';
 import { trainModel } from './lib/classify.js';
-import { STATUSES, getSection } from './lib/frontmatter.js';
+import { STATUSES, getSection, removeSection, parseNote } from './lib/frontmatter.js';
+import { fold, plainText, parseQuery, matchItem, snippet } from './lib/search.js';
+import { parseHighlights, withHighlights, cleanHighlight, sameHighlight, MARKERINGEN } from './lib/highlights.js';
+import { dailyReview, stopReview, daysUntil, highlightOfDay, localDay } from './lib/review.js';
+import { openTextCache } from './lib/textcache.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -40,6 +44,8 @@ const ICONS = {
   sort: '<path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="M11 4h10"/><path d="M11 8h7"/><path d="M11 12h4"/>',
   cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
   play: '<polygon points="7 4 20 12 7 20 7 4"/>',
+  marker: '<path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
 };
 const icon = (name, fill = false) =>
   `<svg viewBox="0 0 24 24" fill="${fill ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -111,6 +117,12 @@ const S = {
   editBundels: null,
   backfilling: false,
   lastLoad: 0,
+  tekst: null,
+  indexing: false,
+  markText: '',
+  reviewIds: [],
+  reviewHl: new Map(),
+  itemFrom: null,
 };
 
 let toastTimer;
@@ -219,9 +231,16 @@ function visibleItems() {
       : f === 'ster' ? i.ster
         : f === 'gebruikt' ? i.status === 'gebruikt'
           : i.status === 'archief'));
-  if (S.q) {
-    const q = S.q.toLowerCase();
-    list = list.filter((i) => `${i.titel} ${i.samenvatting || ''} ${(i.tags || []).join(' ')} ${i.bron || ''} ${i.auteur || ''} ${i.map}`.toLowerCase().includes(q));
+  // Search covers titles, tags and the full text; the best match comes first.
+  const terms = parseQuery(S.q);
+  if (terms.length) {
+    const found = [];
+    for (const i of list) {
+      const text = noteText(i.id);
+      const m = matchItem(i, text, terms);
+      if (m) found.push({ ...i, zoekscore: m.score, fragment: m.inBody ? snippet(text.plain, terms) : null });
+    }
+    return found.sort((a, b) => b.zoekscore - a.zoekscore || b.rank - a.rank);
   }
   const days = (i) => (Date.now() - new Date(i.opgeslagen).getTime()) / 864e5;
   const key = {
@@ -254,6 +273,7 @@ async function connect() {
       root: S.cfg.modus === 'lokaal' ? 'Contentmachine' : S.cfg.map,
       storage: safeStorage,
       storageKey: `cm_pending:${S.cfg.modus}:${S.cfg.owner}/${S.cfg.repo}`,
+      textCache: S.cfg.modus === 'lokaal' ? null : openTextCache(),
     });
     vault.onChange = () => {
       refreshItems();
@@ -298,6 +318,7 @@ async function loadVault() {
   refreshItems();
   runAutoBundle();
   backfill();
+  setTimeout(indexTexts, 1500);
 }
 
 // Older items without a preview get one in the background, a few per visit.
@@ -312,6 +333,49 @@ async function backfill() {
   } finally {
     S.backfilling = false;
   }
+}
+
+// ---------- full-text search ----------
+const noteTexts = new Map(); // id -> { raw, plain, folded }
+function noteText(id) {
+  const raw = S.vault.cachedText(id);
+  if (raw === null) return null;
+  const c = noteTexts.get(id);
+  if (c && c.raw === raw) return c;
+  const plain = plainText(parseNote(raw).body);
+  const entry = { raw, plain, folded: fold(plain) };
+  noteTexts.set(id, entry);
+  return entry;
+}
+
+// Reads every note once in the background, so search covers the full text.
+// After the first time the texts come from this device.
+let indexRender;
+async function indexTexts() {
+  if (S.indexing || !S.vault) return;
+  S.indexing = true;
+  const vault = S.vault;
+  try {
+    const n = await vault.loadTexts((klaar, totaal) => {
+      S.tekst = { klaar, totaal };
+      if (!S.q || indexRender) return;
+      indexRender = setTimeout(() => {
+        indexRender = null;
+        renderList();
+      }, 400);
+    });
+    S.tekst = null;
+    if (n && S.q) renderList();
+    vault.textCache?.prune(new Set(vault.files.values())).catch(() => {});
+  } finally {
+    S.indexing = false;
+  }
+}
+
+function searchState() {
+  if (!S.vault) return '';
+  const n = S.items.filter((i) => S.vault.cachedText(i.id) !== null).length;
+  return `${n} van ${S.items.length} notities doorzoekbaar op dit apparaat${S.tekst ? ' (laden...)' : ''}`;
 }
 
 // ---------- markdown ----------
@@ -396,9 +460,10 @@ function md(src) {
   return html;
 }
 
-// Same rule as the vault: notes end only at a heading the app writes.
+// Notes and highlights have their own place in the detail view. Same rule as
+// the vault: notes end only at a heading the app writes.
 function withoutNotes(body, image) {
-  const out = body.replace(/^## Mijn notities[ \t]*\n[\s\S]*?(?=^## (?:Kernpunten|Content-ideeën|Bron)[ \t]*$|(?![\s\S]))/m, '');
+  const out = removeSection(body.replace(/^## Mijn notities[ \t]*\n[\s\S]*?(?=^## (?:Kernpunten|Content-ideeën|Markeringen|Bron)[ \t]*$|(?![\s\S]))/m, ''), MARKERINGEN);
   // The preview already shows as the large image at the top.
   return image ? out.split(`![](${image})`).join('') : out;
 }
@@ -427,6 +492,8 @@ async function onRoute() {
   route();
   if (S.view === 'deel') return handleShare();
   // A newly opened item starts at the top; back in the feed you land where you were.
+  if (S.view === 'item' && prev !== 'item') S.itemFrom = prev;
+  hideMarkBar();
   if (S.view === 'item' && S.param !== S.openedId) {
     if (['feed', 'map'].includes(prev)) S.feedScroll = isDesktop() ? $('.main')?.scrollTop || 0 : window.scrollY;
     S.openedId = S.param;
@@ -439,6 +506,7 @@ async function onRoute() {
   if (!S.ready) return;
   if (S.view === 'item') loadDetail(S.param);
   if (S.view === 'concept') loadConcept(S.param);
+  if (S.view === 'vandaag') loadReview();
 }
 
 async function loadDetail(id) {
@@ -485,11 +553,13 @@ function card(i) {
         <span class="type">${esc(TYPE_LABEL[i.type] || i.type || 'Item')}</span>
         <span class="src">${esc(i.bron || i.map)}</span>
         <span>${relDate(i.opgeslagen)}</span>
+        ${i.markeringen ? `<span class="hl-count" title="${i.markeringen} markering${i.markeringen === 1 ? '' : 'en'}">${icon('marker')}${i.markeringen}</span>` : ''}
         ${i.ster ? `<span class="star-mini">${icon('star', true)}</span>` : ''}
         <span class="score ${scoreClass(i.rank)}" title="Basis ${i.score}, geleerd ${i.boost >= 0 ? '+' : ''}${i.boost}">${shown(i.rank)}</span>
       </div>
       <h3>${esc(i.titel)}</h3>
-      ${i.samenvatting ? `<p>${esc(i.samenvatting)}</p>` : ''}
+      ${i.fragment ? `<p class="snippet">${i.fragment.map((f) => (f.hit ? `<mark>${esc(f.t)}</mark>` : esc(f.t))).join('')}</p>`
+        : i.samenvatting ? `<p>${esc(i.samenvatting)}</p>` : ''}
       <div class="tags">${firstTag(i)}${(i.tags || []).slice(0, 3).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
     </div>
     <div class="card-side">
@@ -525,7 +595,10 @@ function listHtml() {
     return `<div class="empty"><h2>Nog niets bewaard</h2><p>Deel een link via de Deel-knop op je iPhone, of tik op + om een link te plakken.</p><p><a href="#/instellingen">iPhone-opdracht instellen</a></p></div>`;
   }
   const items = visibleItems();
-  return busy + (items.length ? items.map(card).join('') : '<div class="empty"><p>Niets gevonden met dit filter.</p></div>');
+  const searching = parseQuery(S.q).length;
+  const hint = searching && S.tekst ? `<p class="small muted search-hint"><span class="spinner"></span>Volledige tekst laden: ${S.tekst.klaar} van ${S.tekst.totaal} notities. De resultaten vullen zich aan.</p>` : '';
+  const none = searching ? 'Niets gevonden, ook niet in de volledige tekst.' : 'Niets gevonden met dit filter.';
+  return busy + hint + (items.length ? items.map(card).join('') : `<div class="empty"><p>${none}</p></div>`);
 }
 
 function chipsHtml() {
@@ -554,7 +627,7 @@ function feedView() {
       <button class="icon-btn" data-action="reload" aria-label="Vernieuwen" title="Vernieuwen">${icon('refresh')}</button>
       <button class="btn" data-action="sort" title="Sortering">${icon('sort')}${SORTS[S.sort]}</button>
     </div>
-    <label class="search">${icon('search')}<input id="q" type="search" placeholder="Zoek in titels, tags en samenvattingen" value="${esc(S.q)}" autocomplete="off"></label>
+    <label class="search">${icon('search')}<input id="q" type="search" placeholder="Zoek in alles, ook de volledige tekst" value="${esc(S.q)}" autocomplete="off"></label>
     ${S.map && S.map !== 'Inbox' ? `<div class="chips bundles" id="bundles">${bundleChipsHtml()}</div>` : ''}
     <div class="chips" id="chips">${chipsHtml()}</div>
     <div class="list" id="list">${listHtml()}</div>`;
@@ -619,9 +692,58 @@ function detailHtml() {
     <div class="field"><label for="map-select">Map</label><select id="map-select">${folderOptions(d.map)}</select></div>
     <div class="field"><label for="tags-input">Tags (komma's)</label><input id="tags-input" value="${esc((d.tags || []).join(', '))}" autocomplete="off"></div>
     <div class="field"><label for="notes">Mijn notities <span id="notes-state" class="small"></span></label><textarea id="notes" rows="4" placeholder="Jouw gedachten, invalshoek of hook. Gaat mee in de prompt en staat ook in Obsidian.">${esc(d.notities || '')}</textarea></div>
-    <div class="md">${md(withoutNotes(d.body || '', image))}</div>
+    ${highlightsPanel(d)}
+    <div class="md" id="reader">${md(withoutNotes(d.body || '', image))}</div>
     <p class="small muted">Bestand: ${esc(d.path)}</p>
   </div>`;
+}
+
+function highlightsPanel(d) {
+  const list = parseHighlights(d.body || '');
+  return `<div class="panel highlights">
+    <h3>${icon('marker')}Markeringen${list.length ? ` <span class="muted small">${list.length}</span>` : ''}</h3>
+    ${list.length ? list.map((h, n) => `<div class="hl-item">
+      <blockquote><mark>${esc(h.tekst)}</mark></blockquote>
+      ${h.notitie ? `<p class="hl-note">${esc(h.notitie)}</p>` : ''}
+      <div class="row hl-actions"><button class="btn ghost" data-action="hl-note" data-v="${n}">${icon('pen')}${h.notitie ? 'Notitie aanpassen' : 'Notitie'}</button><button class="btn ghost" data-action="hl-remove" data-v="${n}">${icon('trash')}Weghalen</button></div>
+    </div>`).join('') : '<p class="small muted">Selecteer tekst in het artikel hieronder en tik op <b>Markeer</b>. Markeringen gaan mee in je prompts, komen terug in Vandaag en staan geel in Obsidian.</p>'}
+  </div>`;
+}
+
+function reviewCard(i, day) {
+  const hls = S.reviewHl.get(i.id);
+  const h = hls ? highlightOfDay(hls, day, i.id) : null;
+  const terug = daysUntil(S.vault.herhaling, i.id);
+  const id = esc(i.id);
+  let quote = i.samenvatting ? `<p class="muted">${esc(i.samenvatting)}</p>` : '';
+  if (h) quote = `<blockquote class="hl-quote"><mark>${esc(h.tekst)}</mark>${h.notitie ? `<p class="hl-note">${esc(h.notitie)}</p>` : ''}</blockquote>`;
+  else if (!hls && i.markeringen) quote = '<div class="shimmer"></div><div class="shimmer" style="width:70%"></div>';
+  return `<article class="review-card">
+    <div class="review-head">
+      <div style="flex:1;min-width:0">
+        <div class="card-top"><span class="type">${esc(TYPE_LABEL[i.type] || i.type || 'Item')}</span><span class="src">${esc(i.bron || i.map)}</span><span>${relDate(i.opgeslagen)}</span></div>
+        <h3 data-action="open" data-id="${id}">${esc(i.titel)}</h3>
+      </div>
+      ${thumbHtml(i)}
+    </div>
+    ${quote}
+    <div class="make-row">
+      <button class="btn" data-action="review-make" data-id="${id}">${icon('sparkle')}Maak content</button>
+      <button class="btn" data-action="open" data-id="${id}">Lees</button>
+    </div>
+    <div class="review-foot small muted"><span>${terug === null ? 'Komt niet meer terug' : `Komt over ${terug} dagen terug`}</span>
+      ${terug === null ? '' : `<button class="link-btn" data-action="review-stop" data-id="${id}">Niet meer tonen</button>`}</div>
+  </article>`;
+}
+
+function vandaagView() {
+  const day = localDay();
+  const items = S.reviewIds.map((id) => S.items.find((i) => i.id === id)).filter(Boolean);
+  const head = `<div class="topbar"><div style="flex:1"><span class="dateline">${esc(new Date().toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' }))}</span><h1>Vandaag</h1></div></div>
+    <p class="muted">Elke dag komen een paar bewaarde items terug, met een van je markeringen. Zo zakt goed materiaal niet weg onder nieuwe links. Elke keer dat iets terugkomt, duurt het daarna twee keer zo lang.</p>`;
+  if (!items.length) return `${head}<div class="empty"><h2>Niets om te herhalen</h2><p>Bewaar een paar links. Vanaf morgen komen ze hier terug.</p></div>`;
+  return `${head}<div class="list">${items.map((i) => reviewCard(i, day)).join('')}</div>
+    <button class="btn primary block" data-action="review-prompt" style="margin-top:14px">${icon('sparkle')}Maak een nieuwsbrief van deze mix</button>`;
 }
 
 function studioView() {
@@ -801,6 +923,7 @@ function settingsView() {
       <dl class="kv">
         <dt>Opslag</dt><dd>${c.modus === 'lokaal' ? 'Alleen dit apparaat' : `GitHub ${esc(c.owner)}/${esc(c.repo)} (${esc(c.branch)})`}</dd>
         <dt>Sync</dt><dd id="sync-state">${syncText()}</dd>
+        <dt>Zoeken</dt><dd>${esc(searchState())}</dd>
         <dt>AI</dt><dd>${c.haiku && c.anthropicKey ? 'Claude Haiku bij nieuwe items' : 'Uit: ordenen met regels en het eigen model'}</dd>
       </dl>
       <div class="row" style="margin-top:12px"><button class="btn danger" data-action="disconnect">Ontkoppel dit apparaat</button></div>
@@ -818,10 +941,11 @@ function syncText() {
 
 function sidebarHtml() {
   const nav = (href, ic, label, active, count = '') => `<a class="nav-item ${active ? 'active' : ''}" href="${href}">${icon(ic)}${label}${count !== '' ? `<span class="count">${count}</span>` : ''}</a>`;
-  const onFeed = (S.view === 'feed' || S.view === 'item') && !S.map;
+  const onFeed = (S.view === 'feed' || (S.view === 'item' && S.itemFrom !== 'vandaag')) && !S.map;
   return `<div class="brand"><img src="icon.svg" alt=""><div>Contentmachine<small>NinA AI Agency</small></div></div>
     <button class="btn primary block" data-action="add" style="margin-bottom:10px">${icon('plus')}Bewaar link of idee</button>
     ${nav('#/', 'feed', 'Feed', onFeed, S.items.filter((i) => i.status !== 'archief').length)}
+    ${nav('#/vandaag', 'sun', 'Vandaag', S.view === 'vandaag' || (S.view === 'item' && S.itemFrom === 'vandaag'), reviewWaiting() ? 'nieuw' : '')}
     ${nav('#/studio', 'pen', 'Studio', S.view === 'studio' || S.view === 'concept', S.selected.size || '')}
     ${nav('#/instellingen', 'settings', 'Instellingen', S.view === 'instellingen')}
     <div class="nav-label">Mappen</div>
@@ -832,9 +956,11 @@ function sidebarHtml() {
 }
 
 function tabbarHtml() {
-  const tab = (href, ic, label, active, badge = 0) => `<button class="tab ${active ? 'active' : ''}" data-action="nav" data-href="${href}"><span class="tab-icon">${icon(ic)}${badge ? `<span class="badge">${badge}</span>` : ''}</span>${label}</button>`;
+  const tab = (href, ic, label, active, badge = 0) => `<button class="tab ${active ? 'active' : ''}" data-action="nav" data-href="${href}"><span class="tab-icon">${icon(ic)}${badge === true ? '<span class="badge dot"></span>' : badge ? `<span class="badge">${badge}</span>` : ''}</span>${label}</button>`;
+  const fromToday = S.view === 'item' && S.itemFrom === 'vandaag';
   return `<nav class="tabbar">
-    ${tab('#/', 'feed', 'Feed', S.view === 'feed' || (S.view === 'item' && !S.map))}
+    ${tab('#/', 'feed', 'Feed', S.view === 'feed' || (S.view === 'item' && !S.map && !fromToday))}
+    ${tab('#/vandaag', 'sun', 'Vandaag', S.view === 'vandaag' || fromToday, reviewWaiting())}
     ${tab('#/mappen', 'grid', 'Mappen', S.view === 'mappen' || S.view === 'map')}
     ${tab('#/studio', 'pen', 'Studio', S.view === 'studio' || S.view === 'concept', S.selected.size)}
     ${tab('#/instellingen', 'settings', 'Instellingen', S.view === 'instellingen')}
@@ -920,7 +1046,9 @@ function render() {
   else if (S.view === 'concept') main = conceptView();
   else if (S.view === 'instellingen') main = settingsView();
   else if (S.view === 'mappen') main = desktop ? feedView() : foldersView();
+  else if (S.view === 'vandaag') main = vandaagView();
   else if (S.view === 'item' && !desktop) main = detailHtml();
+  else if (S.view === 'item' && S.itemFrom === 'vandaag') main = vandaagView();
   else main = feedView();
 
   const mainScroll = $('.main')?.scrollTop || 0;
@@ -950,6 +1078,7 @@ function render() {
     q?.focus();
     q?.setSelectionRange(q.value.length, q.value.length);
   }
+  markReader();
 }
 
 function renderList() {
@@ -974,6 +1103,7 @@ function renderDetail() {
     const main = $('#main');
     if (main) main.innerHTML = detailHtml();
   }
+  markReader();
 }
 
 function renderSync() {
@@ -1062,6 +1192,150 @@ async function buildCurrentPrompt() {
   });
   S.resultaat = '';
 }
+
+// ---------- daily review ----------
+function reviewWaiting() {
+  return Boolean(S.vault && S.items.length && local.get('cm_review_seen', '') !== localDay());
+}
+
+function ensureReview() {
+  const { state, ids, changed } = dailyReview(S.items, S.vault.herhaling);
+  if (changed) S.vault.saveReview(state);
+  S.reviewIds = ids;
+  local.set('cm_review_seen', state.dag);
+}
+
+// The mix of today, then the highlights of those items.
+async function loadReview() {
+  if (!S.ready) return;
+  ensureReview();
+  render();
+  const missing = S.reviewIds.filter((id) => !S.reviewHl.has(id));
+  await Promise.all(missing.map(async (id) => {
+    try {
+      S.reviewHl.set(id, parseHighlights((await S.vault.get(id)).body));
+    } catch {
+      S.reviewHl.set(id, []);
+    }
+  }));
+  if (missing.length && S.view === 'vandaag') render();
+}
+
+// ---------- highlights ----------
+async function editHighlights(change) {
+  const id = S.detail.id;
+  let body = null;
+  try {
+    const updated = await S.vault.update(id, {}, { transform: (b) => (body = withHighlights(b, change(parseHighlights(b)))) });
+    S.reviewHl.delete(id);
+    refreshItems();
+    if (S.detail?.id === id) S.detail = { ...S.detail, ...decorate(updated), body };
+    renderList();
+    renderDetail();
+    return updated;
+  } catch (e) {
+    toast(e.message);
+    return null;
+  }
+}
+
+// Shows the saved highlights inside the text. Works on the rendered text, so a
+// highlight may cross bold text, links and paragraphs.
+function markReader() {
+  const root = document.getElementById('reader');
+  const list = S.detail ? parseHighlights(S.detail.body || '') : [];
+  if (!root || !list.length) return;
+  let flat = '';
+  const at = []; // per character of flat: [text node, offset], or null between blocks
+  let block = null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const b = n.parentElement.closest('p,li,blockquote,h1,h2,h3,h4,h5,h6,pre');
+    if (b !== block && flat && !flat.endsWith(' ')) {
+      flat += ' ';
+      at.push(null);
+    }
+    block = b;
+    const t = n.nodeValue;
+    for (let k = 0; k < t.length; k++) {
+      const space = /\s/.test(t[k]);
+      if (space && (!flat || flat.endsWith(' '))) continue;
+      flat += space ? ' ' : t[k].toLowerCase();
+      at.push([n, k]);
+    }
+  }
+  const perNode = new Map();
+  for (const h of list) {
+    const needle = cleanHighlight(h.tekst).toLowerCase();
+    if (!needle) continue;
+    // Every place the passage appears, also when the summary repeats it.
+    for (let start = flat.indexOf(needle); start !== -1; start = flat.indexOf(needle, start + needle.length)) {
+      for (let k = start; k < start + needle.length; k++) {
+        if (!at[k]) continue;
+        const [node, off] = at[k];
+        if (!perNode.has(node)) perNode.set(node, new Set());
+        perNode.get(node).add(off);
+      }
+    }
+  }
+  for (const [node, offsets] of perNode) {
+    const sorted = [...offsets].sort((a, b) => a - b);
+    const ranges = [];
+    for (const off of sorted) {
+      const last = ranges[ranges.length - 1];
+      if (last && off - last[1] < 4) last[1] = off + 1;
+      else ranges.push([off, off + 1]);
+    }
+    // From the end, so the earlier offsets stay valid while splitting.
+    for (const [s, e] of ranges.reverse()) {
+      const mid = node.splitText(s);
+      mid.splitText(e - s);
+      const mark = document.createElement('mark');
+      mark.className = 'hl';
+      mid.replaceWith(mark);
+      mark.append(mid);
+    }
+  }
+}
+
+// Select text in the article and a bar with Markeer appears at the bottom.
+function markBar() {
+  let bar = document.getElementById('mark-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'mark-bar';
+    bar.innerHTML = `<button class="btn primary" data-action="highlight">${icon('marker')}Markeer</button><button class="btn" data-action="highlight" data-v="note">${icon('pen')}Met notitie</button>`;
+    // Keep the selection when the bar is clicked with a mouse.
+    bar.addEventListener('mousedown', (ev) => ev.preventDefault());
+    document.body.append(bar);
+  }
+  return bar;
+}
+
+function hideMarkBar() {
+  S.markText = '';
+  document.getElementById('mark-bar')?.classList.remove('show');
+}
+
+let markTimer;
+document.addEventListener('selectionchange', () => {
+  clearTimeout(markTimer);
+  markTimer = setTimeout(() => {
+    const sel = getSelection();
+    const reader = document.getElementById('reader');
+    const inside = sel && !sel.isCollapsed && reader && reader.contains(sel.anchorNode) && reader.contains(sel.focusNode);
+    const text = inside ? cleanHighlight(sel.toString()) : '';
+    if (text.length >= 3) {
+      S.markText = text;
+      markBar().classList.add('show');
+    } else if (S.markText) {
+      // A tap on the bar clears the selection first; give the tap time to land.
+      setTimeout(() => {
+        if (getSelection()?.isCollapsed !== false) hideMarkBar();
+      }, 400);
+    }
+  }, 120);
+});
 
 function readConnectForm() {
   const val = (id) => document.getElementById(id)?.value ?? '';
@@ -1250,6 +1524,47 @@ const actions = {
   embed: () => {
     S.embed = S.detail.id;
     renderDetail();
+  },
+  highlight: async (el) => {
+    const tekst = S.markText;
+    if (!tekst || !S.detail) return;
+    const notitie = el.dataset.v === 'note' ? prompt('Je notitie bij deze markering') : '';
+    if (notitie === null) return;
+    hideMarkBar();
+    getSelection()?.removeAllRanges();
+    if (parseHighlights(S.detail.body || '').some((h) => sameHighlight(h.tekst, tekst))) return toast('Stond al gemarkeerd');
+    const m = await editHighlights((list) => [...list, { tekst, notitie: notitie.trim() }]);
+    if (m) {
+      S.vault.learner.signal(m, 'markering');
+      toast('Gemarkeerd');
+    }
+  },
+  'hl-note': async (el) => {
+    const n = Number(el.dataset.v);
+    const note = prompt('Notitie bij deze markering', parseHighlights(S.detail.body || '')[n]?.notitie || '');
+    if (note === null) return;
+    await editHighlights((list) => list.map((h, k) => (k === n ? { ...h, notitie: note.trim() } : h)));
+  },
+  'hl-remove': async (el) => {
+    const n = Number(el.dataset.v);
+    if (await editHighlights((list) => list.filter((_, k) => k !== n))) toast('Markering weggehaald');
+  },
+  'review-make': async (el) => {
+    S.selected = new Set([el.dataset.id]);
+    S.soort = 'linkedin';
+    await buildCurrentPrompt();
+    go('#/studio');
+  },
+  'review-stop': (el) => {
+    S.vault.saveReview(stopReview(S.vault.herhaling, el.dataset.id));
+    toast('Komt niet meer terug in Vandaag');
+    render();
+  },
+  'review-prompt': async () => {
+    S.selected = new Set(S.reviewIds.filter((id) => S.vault.has(id)));
+    S.soort = 'nieuwsbrief';
+    await buildCurrentPrompt();
+    go('#/studio');
   },
   copy: (el) => copy(el.dataset.v),
   add: () => {
