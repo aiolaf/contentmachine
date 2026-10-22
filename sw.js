@@ -1,6 +1,6 @@
 // App shell cache: opens instantly on the iPhone, refreshes in the background.
 // Only this app's own files are cached; GitHub and other APIs always go to the network.
-const CACHE = 'cm-v9';
+const CACHE = 'cm-v10';
 const SHELL = [
   './', 'index.html', 'app.js', 'styles.css', 'icon.svg', 'manifest.webmanifest', 'apple-touch-icon.png',
   'lib/frontmatter.js', 'lib/store.js', 'lib/vault.js', 'lib/capture.js', 'lib/classify.js',
@@ -9,7 +9,8 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // "reload" skips the browser cache, so a new version never installs old files.
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -28,7 +29,9 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     caches.open(CACHE).then(async (cache) => {
       const cached = await cache.match(key);
-      const fresh = fetch(e.request)
+      // "no-cache" asks GitHub Pages whether the file changed instead of using a
+      // copy from the browser cache that can be ten minutes old.
+      const fresh = fetch(e.request, { cache: 'no-cache' })
         .then((res) => {
           if (res.ok) cache.put(key, res.clone());
           return res;

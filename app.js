@@ -57,6 +57,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
+const VERSIE = '22 okt 2026, 21:30';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
 const OBSIDIAN_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)';
 
@@ -271,6 +272,8 @@ function pipelineOpts() {
   return opts;
 }
 
+const pendingKey = () => `cm_pending:${S.cfg.modus}:${S.cfg.owner}/${S.cfg.repo}`;
+
 async function connect() {
   S.connecting = true;
   S.fout = '';
@@ -279,7 +282,7 @@ async function connect() {
     const vault = new Vault(makeStore(S.cfg), {
       root: S.cfg.modus === 'lokaal' ? 'Contentmachine' : S.cfg.map,
       storage: safeStorage,
-      storageKey: `cm_pending:${S.cfg.modus}:${S.cfg.owner}/${S.cfg.repo}`,
+      storageKey: pendingKey(),
       textCache: S.cfg.modus === 'lokaal' ? null : openTextCache(),
     });
     vault.onChange = () => {
@@ -298,7 +301,16 @@ async function connect() {
 }
 
 // Reads the vault and orders whatever the iPhone shortcut dropped in Inbox.
-async function loadVault() {
+// One load at a time: returning to the app while it is still loading must
+// not start a second one that trips over the first.
+let loading = null;
+function loadVault() {
+  if (!loading) loading = loadVaultOnce().finally(() => { loading = null; });
+  return loading;
+}
+
+async function loadVaultOnce() {
+  S.lastLoad = Date.now();
   if (S.vault.pending.size) await S.vault.flush().catch(() => {});
   const { captures, moves } = await S.vault.load();
   S.lastLoad = Date.now();
@@ -903,7 +915,8 @@ function connectForm() {
       <div class="field" style="flex:1"><label for="cfg-map">Map in de repo</label><input id="cfg-map" value="${esc(c.map)}" autocapitalize="off" autocomplete="off"></div></div>
       <div class="field"><label for="cfg-token">Token (fine-grained, alleen deze repo, Contents: read and write)</label><input id="cfg-token" type="password" value="${esc(c.token)}" autocomplete="off" placeholder="github_pat_..."></div>
       <p class="small muted">Het token blijft op dit apparaat en gaat alleen naar api.github.com.</p>`}
-      ${S.fout ? `<p class="error-text">${esc(S.fout)}</p>` : ''}
+      ${S.fout ? `<p class="error-text">${esc(S.fout)}</p>${S.cfg.modus && safeStorage.getItem(pendingKey()) ? `<p class="small muted">Blijft dit terugkomen? Op dit apparaat wachten nog wijzigingen die niet naar GitHub konden. Wis ze en verbind opnieuw; nieuwe links in je Inbox worden daarna opnieuw geordend.</p>
+      <button class="btn block" data-action="clear-pending" style="margin-bottom:8px">${icon('refresh')}Wis wachtende wijzigingen en verbind opnieuw</button>` : ''}` : ''}
       <button class="btn primary block" data-action="connect" ${S.connecting ? 'disabled' : ''}>${S.connecting ? '<span class="spinner"></span>Verbinden...' : `${icon('check')}${S.ready ? 'Opnieuw verbinden' : 'Verbind'}`}</button>
     </div>`;
 }
@@ -913,6 +926,7 @@ function welcomeView() {
     <div class="login" style="max-width:none;margin-bottom:10px"><img src="icon.svg" alt=""><h1>Contentmachine</h1><p class="muted">Bewaar links vanaf je iPhone, orden ze zonder AI en werk verder in Obsidian. Gratis.</p></div>
     ${connectForm()}
     <p class="small muted">Nieuw? De README in de repo legt in vijf minuten uit hoe je de GitHub-repo en het token maakt.</p>
+    <p class="small muted">Versie ${VERSIE}</p>
   </div></div>`;
 }
 
@@ -1010,6 +1024,7 @@ function settingsView() {
         <dt>Opslag</dt><dd>${c.modus === 'lokaal' ? 'Alleen dit apparaat' : `GitHub ${esc(c.owner)}/${esc(c.repo)} (${esc(c.branch)})`}</dd>
         <dt>Sync</dt><dd id="sync-state">${syncText()}</dd>
         <dt>Zoeken</dt><dd>${esc(searchState())}</dd>
+        <dt>Versie</dt><dd>${VERSIE}</dd>
         <dt>AI</dt><dd>${c.haiku && c.anthropicKey ? 'Claude Haiku bij nieuwe items' : 'Uit: ordenen met regels en het eigen model'}</dd>
       </dl>
       <div class="row" style="margin-top:12px"><button class="btn danger" data-action="disconnect">Ontkoppel dit apparaat</button></div>
@@ -1869,6 +1884,14 @@ const actions = {
     }
     local.set('cm_config', S.cfg);
     S.ready = false;
+    await connect();
+    if (S.ready) go('#/');
+    else render();
+  },
+  'clear-pending': async () => {
+    if (!confirm('Wachtende wijzigingen op dit apparaat wissen? Wat al op GitHub staat, blijft gewoon staan.')) return;
+    safeStorage.removeItem(pendingKey());
+    S.fout = '';
     await connect();
     if (S.ready) go('#/');
     else render();
