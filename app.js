@@ -66,7 +66,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '23 okt 2026, 00:00';
+const VERSIE = '23 okt 2026, 00:30';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
 const OBSIDIAN_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)';
 
@@ -749,6 +749,7 @@ function detailHtml() {
       <div class="make-row">
         <button class="btn" data-action="make" data-v="linkedin">${icon('sparkle')}LinkedIn</button>
         <button class="btn" data-action="make" data-v="x">${icon('sparkle')}X</button>
+        <button class="btn" data-action="make" data-v="instagram">${icon('sparkle')}Instagram</button>
         <button class="btn" data-action="make" data-v="tiktok">${icon('sparkle')}TikTok</button>
         <button class="btn" data-action="make" data-v="nieuwsbrief">${icon('sparkle')}Nieuwsbrief</button>
         <button class="btn ghost" data-action="select" data-id="${esc(d.id)}">${S.selected.has(d.id) ? 'In selectie' : 'Voeg toe aan selectie'}</button>

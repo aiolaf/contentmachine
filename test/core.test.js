@@ -706,4 +706,8 @@ test('video: the share-sheet shortcut opens the downloader with the link', async
   assert.doesNotMatch(xml, /github_pat|Authorization/, 'no token in the video shortcut');
   assert.match(signCommand('Videodownloader'), /--output "Ondertekend\/Videodownloader\.shortcut"/);
   assert.match(buildPrompt({ soort: 'x', items: [] }), /maximaal 280 tekens[\s\S]*## Thread/);
+  // X and Instagram are always English, LinkedIn and the newsletter always Dutch.
+  for (const soort of ['x', 'instagram']) assert.match(buildPrompt({ soort, items: [], stijl: '- Schrijf in het Nederlands.' }), /## Taal\n\nSchrijf alles in het Engels[^\n]*gaat voor wat mijn stijlgids/);
+  for (const soort of ['linkedin', 'nieuwsbrief', 'carrousel']) assert.match(buildPrompt({ soort, items: [] }), /## Taal\n\nSchrijf alles in het Nederlands, ook als de bronnen/);
+  assert.match(buildPrompt({ soort: 'instagram', items: [] }), /## Reel[\s\S]*## Alternative hooks/);
 });

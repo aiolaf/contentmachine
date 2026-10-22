@@ -224,7 +224,7 @@ Elk signaal past de gewichten aan van de tags, map, bron, het type en de maker. 
 
 ## Content maken: de prompt-generator
 
-In de **Studio** kies je bronnen (het rondje op een kaart, of "Beste van deze week") en een vorm: LinkedIn post, post op X (met thread), carrousel, TikTok script, nieuwsbrief of een vrije opdracht. De app bouwt een complete prompt met:
+In de **Studio** kies je bronnen (het rondje op een kaart, of "Beste van deze week") en een vorm: LinkedIn post, post op X (met thread), Instagram (caption en reel), carrousel, TikTok script, nieuwsbrief of een vrije opdracht. Elke vorm heeft een vaste taal: **X en Instagram in het Engels, LinkedIn, carrousel en nieuwsbrief in het Nederlands**, ook als de bronnen in een andere taal zijn. De app bouwt een complete prompt met:
 
 - je profiel (`_systeem/profiel.md`) en stijlgids (`_systeem/stijl.md`),
 - de opdracht per vorm, waaronder de vaste opbouw van je nieuwsbrief,
