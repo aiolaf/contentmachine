@@ -509,3 +509,22 @@ mark { background: var(--marker); color: inherit; border-radius: 2px; padding: 0
 @media (prefers-reduced-motion: reduce) {
   .toast, .deck-card, .switch .knob, .gen.bezig .gen-ring, .gen.bezig .gen-text, .tilt { animation: none !important; transition: none !important; }
 }
+
+/* ---------- video downloader ---------- */
+.video-input { display: flex; gap: 8px; margin-bottom: 10px; }
+.video-input input { flex: 1; border-radius: 999px; padding-left: 16px; }
+.video-result { margin-top: 16px; }
+.video-title { margin: 0 0 10px; font-family: var(--serif); font-size: 17px; line-height: 1.35; }
+.video-preview { display: block; width: 100%; max-height: 62dvh; border-radius: 12px; background: #1c1a16; margin-bottom: 12px; object-fit: contain; }
+.video-result .btn.ghost { margin-top: 8px; }
+.dl { margin: 4px 0; }
+.dl-bar { height: 10px; border-radius: 999px; background: var(--muted-bg); overflow: hidden; }
+.dl-bar span { display: block; height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, var(--accent), #f07a3e); transition: width .2s ease-out; }
+.dl-text { margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+.error-panel { border-color: #f0b8a8; background: #fff3ef; }
+.error-panel p { margin: 4px 0 0; }
+.video-help { margin-top: 18px; }
+.platforms { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.pf { font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+.pf.ok { color: #1f6b41; background: #e2f2e7; }
+.pf.maybe { color: var(--marker-ink); background: #fff6c9; }

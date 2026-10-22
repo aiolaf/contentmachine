@@ -650,3 +650,60 @@ test('vault: a capture ordered just before the app closed does not break the nex
   assert.ok(!store.files.has('Contentmachine/Inbox/20261022-201214.md'));
   assert.ok(store.files.has(`Contentmachine/${next.meta(made.id).path}`));
 });
+
+test('video: finds the file behind posts on X, TikTok, Instagram and LinkedIn', async () => {
+  const { findVideos, videosInHtml } = await import('../lib/video.js');
+  const json = (o) => new Response(JSON.stringify(o), { headers: { 'content-type': 'application/json' } });
+  const calls = [];
+  const fake = async (url) => {
+    calls.push(url);
+    if (url.startsWith('https://api.fxtwitter.com/status/1886')) {
+      return json({ tweet: { text: 'Agents doen nu je planning', author: { screen_name: 'karpathy' }, media: { videos: [{
+        url: 'https://video.twimg.com/low.mp4', thumbnail_url: 'https://pbs.twimg.com/t.jpg', duration: 42.5,
+        variants: [{ content_type: 'video/mp4', bitrate: 832000, url: 'https://video.twimg.com/mid.mp4' }, { content_type: 'video/mp4', bitrate: 2176000, url: 'https://video.twimg.com/high.mp4' }, { content_type: 'application/x-mpegURL', url: 'https://video.twimg.com/pl.m3u8' }],
+      }] } } });
+    }
+    if (url.startsWith('https://api.fxtwitter.com/status/111')) return json({ tweet: { text: 'Alleen tekst', media: {} } });
+    if (url.startsWith('https://www.tikwm.com/api/')) return json({ code: 0, data: { id: '7300', title: 'Claude Duet demo', hdplay: '/video/media/hdplay/7300.mp4', cover: 'https://p16.tiktokcdn.com/c.jpg', duration: 31, hd_size: 4200000, author: { unique_id: 'nina' } } });
+    if (url.includes('instagram.com/p/Cx1/embed')) return json({ data: { html: '<script>{"shortcode":"Cx1","video_url":"https:\\/\\/scontent.cdninstagram.com\\/v\\/reel.mp4?x=1&amp;y=2"}</script>' } });
+    if (url.includes('linkedin.com/embed/feed/update/urn:li:activity:7212345678901234567')) {
+      return new Response('<video poster="https://media.licdn.com/p.jpg" data-sources="[{&quot;src&quot;:&quot;https://dms.licdn.com/sd.mp4&quot;,&quot;data-bitrate&quot;:400000},{&quot;src&quot;:&quot;https://dms.licdn.com/hd.mp4&quot;,&quot;data-bitrate&quot;:2000000}]"></video>');
+    }
+    if (url.includes('instagram.com/p/Nope/embed')) return json({ data: { html: '<div>Log in om dit te zien</div>' } });
+    return new Response('nee', { status: 404 });
+  };
+
+  const x = await findVideos('Kijk https://x.com/karpathy/status/1886192184808149383?s=20', { fetchImpl: fake });
+  assert.equal(x.platform, 'X');
+  assert.equal(x.videos[0].url, 'https://video.twimg.com/high.mp4', 'best mp4, not the playlist');
+  assert.equal(x.videos[0].bestand, 'x-1886192184808149383.mp4');
+  await assert.rejects(findVideos('https://x.com/a/status/111', { fetchImpl: fake }), /geen video/);
+
+  const tt = await findVideos('https://www.tiktok.com/@nina/video/7300', { fetchImpl: fake });
+  assert.equal(tt.videos[0].url, 'https://www.tikwm.com/video/media/hdplay/7300.mp4');
+  assert.equal(tt.auteur, '@nina');
+
+  const ig = await findVideos('https://www.instagram.com/reel/Cx1/?igsh=abc', { fetchImpl: fake });
+  assert.equal(ig.videos[0].url, 'https://scontent.cdninstagram.com/v/reel.mp4?x=1&y=2');
+  assert.ok(calls.some((u) => u.startsWith('https://r.jina.ai/https://www.instagram.com/p/Cx1/embed/captioned/')));
+  await assert.rejects(findVideos('https://www.instagram.com/p/Nope/', { fetchImpl: fake }), /openbare posts/);
+
+  const li = await findVideos('https://www.linkedin.com/posts/olaf_ai-activity-7212345678901234567-abcd', { fetchImpl: fake });
+  assert.equal(li.videos[0].url, 'https://dms.licdn.com/hd.mp4', 'highest bitrate first');
+  assert.equal(li.videos[0].thumb, 'https://media.licdn.com/p.jpg');
+
+  await assert.rejects(findVideos('https://example.org/blog', { fetchImpl: fake }), /werkt voor X, TikTok/);
+  await assert.rejects(findVideos('geen link', { fetchImpl: fake }), /Plak een link/);
+  assert.deepEqual(videosInHtml('<meta property="og:video" content="https://cdn.example.com/a.mp4"><video src="http://insecure/b.mp4">'), ['https://cdn.example.com/a.mp4']);
+});
+
+test('video: the share-sheet shortcut opens the downloader with the link', async () => {
+  const { buildVideoShortcut, signCommand } = await import('../lib/shortcut.js');
+  const xml = buildVideoShortcut('https://aiolaf.github.io/contentmachine/#/feed');
+  assert.match(xml, /is\.workflow\.actions\.urlencode/);
+  assert.match(xml, /is\.workflow\.actions\.openurl/);
+  assert.match(xml, /https:\/\/aiolaf\.github\.io\/contentmachine\/#\/video\?url=&#xFFFC;/);
+  assert.doesNotMatch(xml, /github_pat|Authorization/, 'no token in the video shortcut');
+  assert.match(signCommand('Videodownloader'), /--output "Ondertekend\/Videodownloader\.shortcut"/);
+  assert.match(buildPrompt({ soort: 'x', items: [] }), /maximaal 280 tekens[\s\S]*## Thread/);
+});

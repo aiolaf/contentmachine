@@ -4,7 +4,8 @@ import { GitHubStore, LocalStore, parseRepoInput, cleanToken } from './lib/store
 import { Vault } from './lib/vault.js';
 import { processCapture, processInbox, backfillPreviews } from './lib/pipeline.js';
 import { embedFor } from './lib/embeds.js';
-import { buildShortcut, inboxApiUrl, SIGN_COMMAND } from './lib/shortcut.js';
+import { buildShortcut, buildVideoShortcut, inboxApiUrl, SIGN_COMMAND, signCommand } from './lib/shortcut.js';
+import { findVideos } from './lib/video.js';
 import {
   parseBundles, stringifyBundles, autoBundle, bundleOf, bundlesFor, setFolderBundles, renameFolderInBundles, OTHER,
 } from './lib/bundles.js';
@@ -51,6 +52,7 @@ const ICONS = {
   play: '<polygon points="7 4 20 12 7 20 7 4"/>',
   layers: '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
   chevron: '<path d="m6 9 6 6 6-6"/>',
+  download: '<path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   marker: '<path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
@@ -64,7 +66,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '22 okt 2026, 23:00';
+const VERSIE = '23 okt 2026, 00:00';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
 const OBSIDIAN_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)';
 
@@ -141,6 +143,7 @@ const S = {
   deck: null,
   gen: null,
   pop: null,
+  video: null,
 };
 
 // A toast in the stack; pass { actie } for an "Ongedaan maken" button.
@@ -518,6 +521,7 @@ async function onRoute() {
   const prev = S.view;
   route();
   if (S.view === 'deel') return handleShare();
+  if (S.view === 'video') openVideoRoute();
   // A newly opened item starts at the top; back in the feed you land where you were.
   if (S.view === 'item' && prev !== 'item') S.itemFrom = prev;
   if (S.view === 'concept' && !['concept', 'item'].includes(prev)) S.conceptFrom = prev;
@@ -542,6 +546,15 @@ async function onRoute() {
   if (S.view === 'item') loadDetail(S.param);
   if (S.view === 'concept') loadConcept(S.param);
   if (S.view === 'vandaag') loadReview();
+}
+
+// #/video?url=... from the share sheet or a post: find the video right away.
+function openVideoRoute() {
+  const url = new URLSearchParams(location.hash.split('?')[1] || '').get('url') || '';
+  if (url && url !== S.video?.invoer) {
+    S.video = emptyVideo(url);
+    findVideo();
+  } else if (!S.video) S.video = emptyVideo();
 }
 
 async function loadDetail(id) {
@@ -725,6 +738,7 @@ function detailHtml() {
       <button class="icon-btn ${d.oordeel === -1 ? 'on-bad' : ''}" data-action="vote" data-v="-1" data-pop="vote-1" aria-pressed="${d.oordeel === -1}" aria-label="Minder hiervan">${icon('down')}</button>
       <button class="icon-btn ${d.status === 'archief' ? 'on' : ''}" data-action="archive" aria-label="Archiveer">${icon('archive')}</button>
       ${origineel ? `<a class="btn" href="${esc(origineel)}" target="_blank" rel="noopener">${icon('external')}Origineel</a>` : ''}
+      ${VIDEO_TYPES.includes(d.type) && origineel ? `<button class="icon-btn" data-action="nav" data-href="#/video?url=${encodeURIComponent(d.url)}" aria-label="Download video" title="Download video">${icon('download')}</button>` : ''}
       <button class="icon-btn" data-action="delete" aria-label="Verwijder">${icon('trash')}</button>
     </div>
     <div class="scorebox"><div class="big">${rollHtml(shown(d.rank), 'score')}</div><div class="why">${d.ordening === 'haiku' ? 'Geordend met Claude Haiku.' : d.ordening ? `Map gekozen via ${esc(d.ordening)}.` : ''}<br><span class="small">Basis ${d.score} ${d.boost >= 0 ? '+' : ''}${d.boost} geleerd${d.ster ? ', +15 ster' : ''}${d.oordeel ? `, ${d.oordeel > 0 ? '+' : ''}${d.oordeel * 10} duim` : ''}</span></div></div>
@@ -734,6 +748,7 @@ function detailHtml() {
       <p class="small muted">Je krijgt een kant-en-klare prompt voor Claude of ChatGPT.</p>
       <div class="make-row">
         <button class="btn" data-action="make" data-v="linkedin">${icon('sparkle')}LinkedIn</button>
+        <button class="btn" data-action="make" data-v="x">${icon('sparkle')}X</button>
         <button class="btn" data-action="make" data-v="tiktok">${icon('sparkle')}TikTok</button>
         <button class="btn" data-action="make" data-v="nieuwsbrief">${icon('sparkle')}Nieuwsbrief</button>
         <button class="btn ghost" data-action="select" data-id="${esc(d.id)}">${S.selected.has(d.id) ? 'In selectie' : 'Voeg toe aan selectie'}</button>
@@ -893,6 +908,138 @@ function vandaagView() {
   if (!items.length) return `${head}<div class="empty"><h2>Niets om te herhalen</h2><p>Bewaar een paar links. Vanaf morgen komen ze hier terug.</p></div>`;
   return `${head}<div class="list">${items.map((i) => reviewCard(i, day)).join('')}</div>
     <button class="btn primary block" data-action="review-prompt" style="margin-top:14px">${icon('sparkle')}Maak een nieuwsbrief van deze mix</button>`;
+}
+
+// ---------- video downloader ----------
+const VIDEO_TYPES = ['tweet', 'tiktok', 'instagram', 'linkedin'];
+const emptyDl = () => ({ staat: 'rust', loaded: 0, total: 0, file: null });
+const emptyVideo = (invoer = '') => ({ invoer, staat: 'leeg', fout: '', info: null, keuze: 0, dl: emptyDl() });
+const mb = (n) => `${(n / 1048576).toLocaleString('nl-NL', { maximumFractionDigits: 1 })} MB`;
+const duration = (sec) => (sec ? `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}` : '');
+// iPhone: the share sheet saves to Photos or Files. Mac: straight to Downloads.
+const touch = () => navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
+const shareable = (file) => touch() && Boolean(navigator.canShare?.({ files: [file] }));
+
+function videoResultHtml(v) {
+  const info = v.info;
+  const pick = info.videos[v.keuze];
+  const dl = v.dl;
+  const pct = dl.total ? Math.min(100, Math.round((dl.loaded / dl.total) * 100)) : 0;
+  let action = `<button class="btn primary block" data-action="video-download">${icon('download')}Download video${pick.grootte ? ` (${mb(pick.grootte)})` : ''}</button>`;
+  if (dl.staat === 'laden') {
+    action = `<div class="dl"><div class="dl-bar"><span style="width:${pct}%"></span></div><p class="small muted dl-text">Downloaden: ${mb(dl.loaded)}${dl.total ? ` van ${mb(dl.total)}` : ''}</p></div>`;
+  } else if (dl.staat === 'klaar') {
+    action = dl.delen
+      ? `<button class="btn primary block" data-action="video-save">${icon('download')}Bewaar in Foto's of Bestanden</button><p class="small muted">Klaar, ${mb(dl.file.size)}. Kies daarna <b>Bewaar video</b>.</p>`
+      : `<p class="small"><b>Klaar.</b> ${esc(dl.file.name)} staat in je Downloads (${mb(dl.file.size)}).</p><button class="btn" data-action="video-save">${icon('download')}Nog een keer opslaan</button>`;
+  } else if (dl.staat === 'fout') {
+    action = `<div class="panel" style="box-shadow:none;background:var(--bg);margin:0">
+      <b>Direct downloaden lukte niet.</b>
+      <p class="small muted">Deze site laat je browser het bestand niet zelf ophalen. Open de video en bewaar hem daar: op je iPhone met de Deel-knop en <b>Bewaar in Bestanden</b>, op je Mac met rechtsklik en <b>Bewaar video als</b>.</p>
+      <a class="btn primary" href="${esc(pick.url)}" target="_blank" rel="noopener noreferrer">${icon('external')}Open video</a>
+    </div>`;
+  }
+  return `<div class="panel video-result">
+    <div class="card-top"><span class="type">${esc(info.platform)}</span>${info.auteur ? `<span>${esc(info.auteur)}</span>` : ''}${duration(pick.duur) ? `<span>${duration(pick.duur)}</span>` : ''}</div>
+    ${info.titel ? `<p class="video-title">${esc(info.titel)}</p>` : ''}
+    <video class="video-preview" src="${esc(pick.url)}" ${pick.thumb ? `poster="${esc(pick.thumb)}"` : ''} controls playsinline preload="none"></video>
+    ${info.videos.length > 1 ? `<div class="chips">${info.videos.map((_, n) => `<button class="chip ${n === v.keuze ? 'on' : ''}" data-action="video-pick" data-v="${n}">Video ${n + 1}</button>`).join('')}</div>` : ''}
+    ${action}
+    ${S.ready && !S.items.some((i) => i.url === info.url) ? `<button class="btn ghost" data-action="video-vault">${icon('plus')}Bewaar de post ook in je vault</button>` : ''}
+  </div>`;
+}
+
+function videoView() {
+  const v = S.video || (S.video = emptyVideo());
+  const busy = v.staat === 'zoeken';
+  return `<div class="topbar"><div style="flex:1;min-width:0"><span class="dateline">X, TikTok, Instagram, LinkedIn</span><h1>Video downloaden</h1></div></div>
+    <div class="video-input">
+      <input id="video-url" type="url" inputmode="url" placeholder="Plak een link naar een post" value="${esc(v.invoer)}" autocapitalize="off" autocomplete="off">
+      <button class="btn" data-action="video-paste">${icon('copy')}Plak</button>
+    </div>
+    <button class="gen block ${busy ? 'bezig' : ''}" data-action="video-find" ${busy ? 'aria-busy="true"' : ''}><span class="gen-ring" aria-hidden="true"></span><span class="gen-inner">${icon('search')}<span class="gen-text">${busy ? 'Video zoeken...' : 'Zoek video'}</span></span></button>
+    ${v.staat === 'fout' ? `<div class="panel error-panel"><b>Niet gelukt</b><p class="small">${esc(v.fout)}</p></div>` : ''}
+    ${v.info ? videoResultHtml(v) : ''}
+    <div class="panel video-help">
+      <div class="platforms"><span class="pf ok">X</span><span class="pf ok">TikTok</span><span class="pf maybe">Instagram</span><span class="pf maybe">LinkedIn</span></div>
+      <p class="small muted">X en TikTok gaan via gratis diensten (fxtwitter, tikwm). Instagram en LinkedIn lezen we van de openbare post via Jina Reader; dat lukt niet bij elke post. Die diensten zien de link.</p>
+      <p class="small muted">Alleen voor eigen gebruik. Wil je een video van een ander posten, vraag dan eerst toestemming.</p>
+    </div>`;
+}
+
+// Only the progress bar changes while downloading, so the preview keeps playing.
+function paintProgress() {
+  const { loaded, total } = S.video.dl;
+  const bar = $('.dl-bar span');
+  if (bar && total) bar.style.width = `${Math.min(100, Math.round((loaded / total) * 100))}%`;
+  const t = $('.dl-text');
+  if (t) t.textContent = `Downloaden: ${mb(loaded)}${total ? ` van ${mb(total)}` : ''}`;
+}
+
+async function findVideo() {
+  const invoer = ($('#video-url')?.value ?? S.video?.invoer ?? '').trim();
+  S.video = { ...emptyVideo(invoer), staat: 'zoeken' };
+  render();
+  try {
+    S.video = { ...S.video, staat: 'gevonden', info: await findVideos(invoer) };
+  } catch (e) {
+    S.video = { ...S.video, staat: 'fout', fout: e.message };
+  }
+  render();
+}
+
+async function downloadVideo() {
+  const v = S.video;
+  const pick = v.info.videos[v.keuze];
+  v.dl = { ...emptyDl(), staat: 'laden', total: pick.grootte || 0 };
+  render();
+  try {
+    const res = await fetch(pick.url, { referrerPolicy: 'no-referrer' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const total = Number(res.headers.get('content-length')) || v.dl.total;
+    const chunks = [];
+    let loaded = 0;
+    const reader = res.body?.getReader();
+    if (reader) {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        loaded += value.length;
+        v.dl = { ...v.dl, loaded, total };
+        paintProgress();
+      }
+    } else chunks.push(new Uint8Array(await res.arrayBuffer()));
+    const type = /^video\//.test(res.headers.get('content-type') || '') ? res.headers.get('content-type') : 'video/mp4';
+    const file = new File(chunks, pick.bestand, { type });
+    v.dl = { staat: 'klaar', loaded: file.size, total: file.size, file, delen: shareable(file) };
+    if (!v.dl.delen) saveVideoFile();
+    render();
+    burst($('.video-result [data-action=video-save]') || $('.video-result'), ['#ffe25c', '#2f8a57']);
+  } catch {
+    v.dl = { ...emptyDl(), staat: 'fout' };
+    render();
+  }
+}
+
+async function saveVideoFile() {
+  const { file, delen } = S.video?.dl || {};
+  if (!file) return;
+  if (delen) {
+    try {
+      await navigator.share({ files: [file] });
+    } catch (e) {
+      if (e.name !== 'AbortError') toast('Delen lukte niet. Probeer het nog eens.', { soort: 'fout' });
+    }
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const a = Object.assign(document.createElement('a'), { href: url, download: file.name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  toast(`${file.name} staat in je Downloads`, { soort: 'ok' });
 }
 
 // ---------- quick sort: a deck of unread items ----------
@@ -1174,6 +1321,18 @@ function settingsView() {
       <p class="small muted">Zet deze webapp op je beginscherm: Safari, Deel, <b>Zet op beginscherm</b>. Open je hem, dan worden nieuwe links geordend.</p>
     </div>`}
 
+    <div class="panel">
+      <h3>Video's downloaden vanuit je deelmenu</h3>
+      <p class="small muted">Een tweede opdracht, <b>Videodownloader</b>. Deel een post op X, TikTok, Instagram of LinkedIn en de downloader opent met de video klaar. Er staat geen token in.</p>
+      <ol class="steps small">
+        <li>Download de opdracht op je Mac.</li>
+        <li>Plak deze regel in <b>Terminal</b>:
+          <div class="copyline"><code>${esc(signCommand('Videodownloader'))}</code><button class="icon-btn" data-action="copy" data-v="${esc(signCommand('Videodownloader'))}" aria-label="Kopieer">${icon('copy')}</button></div></li>
+        <li>Kies <b>Voeg opdracht toe</b>. Via iCloud staat hij ook op je iPhone.</li>
+      </ol>
+      <div class="make-row"><button class="btn primary" data-action="download-video-shortcut">${icon('download')}Download Videodownloader</button><button class="btn" data-action="nav" data-href="#/video">Open de downloader</button></div>
+    </div>
+
     ${c.modus === 'lokaal' ? '' : `<div class="panel">
       <h3>Obsidian op je Mac</h3>
       <p class="small muted">Je items staan als Markdown in GitHub (${esc(c.owner)}/${esc(c.repo)}). Obsidian op je Mac houdt een kopie bij die elke 5 minuten synchroniseert. Eenmalig instellen:</p>
@@ -1254,6 +1413,7 @@ function sidebarHtml() {
     ${nav('#/', 'feed', 'Feed', onFeed, S.items.filter(isActive).length)}
     ${nav('#/vandaag', 'sun', 'Vandaag', S.view === 'vandaag' || (S.view === 'item' && S.itemFrom === 'vandaag'), reviewWaiting() ? 'nieuw' : '')}
     ${nav('#/studio', 'pen', 'Studio', S.view === 'studio' || S.view === 'concept' || (S.view === 'item' && S.itemFrom === 'concept'), S.selected.size || '')}
+    ${nav('#/video', 'download', 'Video downloaden', S.view === 'video')}
     ${nav('#/instellingen', 'settings', 'Instellingen', S.view === 'instellingen')}
     <div class="nav-label">Mappen</div>
     ${folderList().map((f) => nav(`#/map/${encodeURIComponent(f.naam)}`, f.naam === 'Inbox' ? 'inbox' : 'folder', esc(f.naam), S.map === f.naam && (S.view === 'map' || S.view === 'item'), f.aantal)
@@ -1310,7 +1470,7 @@ function sheetHtml() {
     <div class="sheet" data-stop>
       <h2>Bewaar iets</h2>
       <div class="field"><textarea id="add-input" rows="4" placeholder="Plak een link, of typ een idee of notitie"></textarea></div>
-      <div class="row"><button class="btn" data-action="paste">${icon('copy')}Plak</button><span style="flex:1"></span><button class="btn ghost" data-action="close-sheet">Annuleer</button><button class="btn primary" data-action="save-add">Bewaar</button></div>
+      <div class="row"><button class="btn" data-action="paste">${icon('copy')}Plak</button><button class="btn" data-action="add-video" title="Download de video uit deze link">${icon('download')}Video</button><span style="flex:1"></span><button class="btn ghost" data-action="close-sheet">Annuleer</button><button class="btn primary" data-action="save-add">Bewaar</button></div>
     </div>
   </div>`;
 }
@@ -1343,6 +1503,12 @@ function render() {
     app.innerHTML = shareHtml();
     return;
   }
+  if (!S.ready && S.view === 'video') {
+    // The downloader needs no vault: it also works from the share sheet in Safari.
+    app.innerHTML = `<div class="shell"><main class="main" id="main" style="max-width:720px;margin:0 auto">${videoView()}</main></div>`;
+    afterRender();
+    return;
+  }
   if (!S.ready) {
     app.innerHTML = S.cfg.modus && S.connecting && !S.fout
       ? '<div class="center"><div class="login"><img src="icon.svg" alt=""><div class="spinner" style="margin:0 auto"></div></div></div>'
@@ -1359,6 +1525,7 @@ function render() {
   else if (S.view === 'vandaag') main = vandaagView();
   else if (S.view === 'archief') main = archiefView();
   else if (S.view === 'sorteren') main = sorteerView();
+  else if (S.view === 'video') main = videoView();
   else if (S.view === 'item' && desktop && S.itemFrom === 'sorteren') main = sorteerView();
   else if (S.view === 'item' && desktop && S.itemFrom === 'archief') main = archiefView();
   else if (S.view === 'item' && !desktop) main = detailHtml();
@@ -2150,6 +2317,46 @@ const actions = {
     setRing($('.checklist .ring'), done, tasks.length);
     $('#check-count').textContent = `${done} van ${tasks.length} klaar`;
   },
+  'video-find': () => findVideo(),
+  'video-paste': async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      $('#video-url').value = text;
+      findVideo();
+    } catch {
+      toast('Plakken lukte niet, houd het veld ingedrukt');
+    }
+  },
+  'video-pick': (el) => {
+    S.video.keuze = Number(el.dataset.v);
+    S.video.dl = emptyDl();
+    render();
+  },
+  'video-download': () => downloadVideo(),
+  'video-save': () => saveVideoFile(),
+  'video-vault': async () => {
+    try {
+      const meta = await saveInput({ url: S.video.info.url });
+      toast(meta.dubbel ? 'Stond er al in' : `Bewaard in ${meta.map}`, { soort: 'ok' });
+      render();
+    } catch (e) {
+      toast(e.message, { soort: 'fout' });
+    }
+  },
+  'add-video': () => {
+    const text = $('#add-input').value.trim();
+    S.sheet = null;
+    go(`#/video${text ? `?url=${encodeURIComponent(text)}` : ''}`);
+  },
+  'download-video-shortcut': () => {
+    const url = URL.createObjectURL(new Blob([buildVideoShortcut(APP_URL)], { type: 'application/octet-stream' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: 'Videodownloader.shortcut' });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast('Gedownload. Plak nu de regel in Terminal.');
+  },
   // Settings switches save right away.
   toggle: (el) => {
     const key = el.dataset.v;
@@ -2276,6 +2483,11 @@ document.addEventListener('change', async (ev) => {
 // Keys: arrows in the quick sort, Cmd+Enter saves what you typed in the add sheet.
 document.addEventListener('keydown', (ev) => {
   const typing = ev.target.closest?.('input, textarea, select, [contenteditable]');
+  if (ev.target.id === 'video-url' && ev.key === 'Enter') {
+    ev.preventDefault();
+    findVideo();
+    return;
+  }
   if (ev.target.id === 'add-input' && ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) {
     ev.preventDefault();
     actions['save-add']();
@@ -2366,6 +2578,11 @@ async function boot() {
   route();
   const sharing = S.view === 'deel' || new URLSearchParams(location.search).has('url') || new URLSearchParams(location.search).has('text');
   if (sharing) return handleShare();
+  if (S.view === 'video') {
+    onRoute();
+    if (S.cfg.modus) connect().then(render);
+    return;
+  }
   if (S.cfg.modus) await connect();
   onRoute();
 }

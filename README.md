@@ -139,6 +139,24 @@ Genegeerd: #nieuws
 
 In Obsidian klik je op een #hashtag in dat bestand om alle items met die hashtag te zien.
 
+## Video downloaden
+
+Video's van **X, TikTok, Instagram en LinkedIn** bewaar je op je iPhone of Mac, zonder de rare downloadsites.
+
+- **In de app:** op de Mac in de zijbalk (**Video downloaden**), op de iPhone via het plusje en **Video**. Bij elke post van die platforms staat ook een downloadknop.
+- **Vanuit het deelmenu:** onder Instellingen download je een tweede opdracht, **Videodownloader**. Deel een post, en de downloader opent met de video klaar. Er staat geen token in en hij werkt ook zonder gekoppelde vault.
+
+Je ziet de video eerst, dan download je hem met een voortgangsbalk. Op de iPhone kies je daarna **Bewaar video** (Foto's) of **Bewaar in Bestanden**; op de Mac komt hij in Downloads. Lukt direct downloaden niet, dan opent de app de video zodat je hem zelf bewaart.
+
+| Platform | Hoe | Betrouwbaar |
+| --- | --- | --- |
+| X | fxtwitter (gratis API, de beste kwaliteit) | ja |
+| TikTok | tikwm (gratis API, zonder watermerk) | meestal |
+| Instagram | de openbare insluitpagina, via Jina Reader | alleen openbare posts, niet altijd |
+| LinkedIn | de openbare insluitpagina, via Jina Reader | alleen openbare posts, niet altijd |
+
+Die diensten zien de link. Alleen voor eigen gebruik: wil je een video van een ander posten, vraag dan eerst toestemming.
+
 ## Snel en interactief
 
 De app gebruikt de interactieve elementen uit de [NinA UI-bibliotheek](https://www.nina-ai.nl/ui), nagebouwd zonder framework:
@@ -206,7 +224,7 @@ Elk signaal past de gewichten aan van de tags, map, bron, het type en de maker. 
 
 ## Content maken: de prompt-generator
 
-In de **Studio** kies je bronnen (het rondje op een kaart, of "Beste van deze week") en een vorm: LinkedIn post, carrousel, TikTok script, nieuwsbrief of een vrije opdracht. De app bouwt een complete prompt met:
+In de **Studio** kies je bronnen (het rondje op een kaart, of "Beste van deze week") en een vorm: LinkedIn post, post op X (met thread), carrousel, TikTok script, nieuwsbrief of een vrije opdracht. De app bouwt een complete prompt met:
 
 - je profiel (`_systeem/profiel.md`) en stijlgids (`_systeem/stijl.md`),
 - de opdracht per vorm, waaronder de vaste opbouw van je nieuwsbrief,
@@ -290,6 +308,7 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | `lib/highlights.js` | markeringen met notities |
 | `lib/review.js` | Vandaag: dagelijkse herhaling |
 | `lib/content.js` | content-archief: onderwerpen, statistiek, eerder gemaakt |
+| `lib/video.js` | videobestand vinden achter posts op X, TikTok, Instagram en LinkedIn |
 | `lib/prompts.js` | prompt-generator |
 | `lib/haiku.js` | optionele Claude Haiku-stap |
 | `lib/frontmatter.js` | YAML-eigenschappen lezen en schrijven |
