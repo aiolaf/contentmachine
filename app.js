@@ -15,6 +15,7 @@ import { fold, plainText, parseQuery, matchItem, snippet } from './lib/search.js
 import { parseHighlights, withHighlights, cleanHighlight, sameHighlight, MARKERINGEN } from './lib/highlights.js';
 import { dailyReview, stopReview, daysUntil, highlightOfDay, localDay } from './lib/review.js';
 import { openTextCache } from './lib/textcache.js';
+import { topicsOf, productionTitle, conceptBody, contentStats, earlierAbout, sameSet } from './lib/content.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -51,7 +52,9 @@ const icon = (name, fill = false) =>
   `<svg viewBox="0 0 24 24" fill="${fill ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 
 const SOORTEN = Object.entries(PROMPT_SOORTEN).map(([id, s]) => ({ id, ...s }));
-const FILTERS = [['actief', 'Alles'], ['nieuw', 'Ongelezen'], ['ster', 'Ster'], ['gebruikt', 'Gebruikt'], ['archief', 'Archief']];
+const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster'], ['gebruikt', 'Content-archief'], ['archief', 'Archief']];
+// The feed shows what you have not turned into content or archived yet.
+const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
@@ -123,6 +126,7 @@ const S = {
   reviewIds: [],
   reviewHl: new Map(),
   itemFrom: null,
+  productie: null,
 };
 
 let toastTimer;
@@ -226,13 +230,16 @@ function visibleItems() {
     });
   }
   const f = S.filter;
-  list = list.filter((i) => (f === 'actief' ? i.status !== 'archief'
-    : f === 'nieuw' ? i.status === 'nieuw'
-      : f === 'ster' ? i.ster
-        : f === 'gebruikt' ? i.status === 'gebruikt'
-          : i.status === 'archief'));
-  // Search covers titles, tags and the full text; the best match comes first.
   const terms = parseQuery(S.q);
+  // Searching from Actueel looks everywhere, the content archive included.
+  if (!(terms.length && f === 'actief')) {
+    list = list.filter((i) => (f === 'actief' ? isActive(i)
+      : f === 'nieuw' ? i.status === 'nieuw'
+        : f === 'ster' ? i.ster
+          : f === 'gebruikt' ? i.status === 'gebruikt'
+            : i.status === 'archief'));
+  }
+  // Search covers titles, tags and the full text; the best match comes first.
   if (terms.length) {
     const found = [];
     for (const i of list) {
@@ -493,6 +500,12 @@ async function onRoute() {
   if (S.view === 'deel') return handleShare();
   // A newly opened item starts at the top; back in the feed you land where you were.
   if (S.view === 'item' && prev !== 'item') S.itemFrom = prev;
+  // Done with a production: a fresh start for the next selection.
+  if (prev === 'studio' && !['studio', 'concept'].includes(S.view) && S.vault && S.productie?.key === productionKey()) {
+    S.selected.clear();
+    S.prompt = '';
+    S.productie = null;
+  }
   hideMarkBar();
   if (S.view === 'item' && S.param !== S.openedId) {
     if (['feed', 'map'].includes(prev)) S.feedScroll = isDesktop() ? $('.main')?.scrollTop || 0 : window.scrollY;
@@ -560,7 +573,7 @@ function card(i) {
       <h3>${esc(i.titel)}</h3>
       ${i.fragment ? `<p class="snippet">${i.fragment.map((f) => (f.hit ? `<mark>${esc(f.t)}</mark>` : esc(f.t))).join('')}</p>`
         : i.samenvatting ? `<p>${esc(i.samenvatting)}</p>` : ''}
-      <div class="tags">${firstTag(i)}${(i.tags || []).slice(0, 3).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
+      <div class="tags">${i.status === 'gebruikt' ? `<span class="tag used" title="In je content-archief">${esc(productionsOf(i.id)[0]?.label || 'Gebruikt')}</span>` : ''}${firstTag(i)}${(i.tags || []).slice(0, 3).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
     </div>
     <div class="card-side">
       ${thumbHtml(i)}
@@ -580,7 +593,7 @@ function bundleChipsHtml() {
   if (!S.map) return '';
   const model = bundleModel();
   const list = bundlesFor(model, S.map);
-  const inFolder = S.items.filter((i) => i.map === S.map && i.status !== 'archief');
+  const inFolder = S.items.filter((i) => i.map === S.map && isActive(i));
   const count = (b) => inFolder.filter((i) => bundleOf(i, model)?.naam === b.naam).length;
   const other = inFolder.filter((i) => !bundleOf(i, model)).length;
   const chip = (v, label, n) => `<button class="chip ${S.bundel === v ? 'on' : ''}" data-action="bundel" data-v="${esc(v ?? '')}">${label}${n !== undefined ? `<span class="n">${n}</span>` : ''}</button>`;
@@ -604,7 +617,7 @@ function listHtml() {
 function chipsHtml() {
   const base = S.map ? S.items.filter((i) => i.map === S.map) : S.items;
   const count = {
-    actief: base.filter((i) => i.status !== 'archief').length,
+    actief: base.filter(isActive).length,
     nieuw: base.filter((i) => i.status === 'nieuw').length,
     ster: base.filter((i) => i.ster).length,
     gebruikt: base.filter((i) => i.status === 'gebruikt').length,
@@ -679,6 +692,7 @@ function detailHtml() {
       <button class="icon-btn" data-action="delete" aria-label="Verwijder">${icon('trash')}</button>
     </div>
     <div class="scorebox"><div class="big">${shown(d.rank)}</div><div class="why">${d.ordening === 'haiku' ? 'Geordend met Claude Haiku.' : d.ordening ? `Map gekozen via ${esc(d.ordening)}.` : ''}<br><span class="small">Basis ${d.score} ${d.boost >= 0 ? '+' : ''}${d.boost} geleerd${d.ster ? ', +15 ster' : ''}${d.oordeel ? `, ${d.oordeel > 0 ? '+' : ''}${d.oordeel * 10} duim` : ''}</span></div></div>
+    ${usedInHtml(d)}
     <div class="panel">
       <h3>Maak er content van</h3>
       <p class="small muted">Je krijgt een kant-en-klare prompt voor Claude of ChatGPT.</p>
@@ -695,6 +709,59 @@ function detailHtml() {
     ${highlightsPanel(d)}
     <div class="md" id="reader">${md(withoutNotes(d.body || '', image))}</div>
     <p class="small muted">Bestand: ${esc(d.path)}</p>
+  </div>`;
+}
+
+const shortDate = (iso) => new Date(iso).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }).replace('.', '');
+
+function productionRow(p) {
+  return `<div class="concept-row prod-row" data-action="nav" data-href="#/concept/${encodeURIComponent(p.file)}">
+    <span class="prod">
+      <span class="prod-top"><span class="soort">${esc(p.label)}</span><span class="small muted">${shortDate(p.datum)}</span>${p.klaar ? '' : '<span class="pill" title="Resultaat nog niet bewaard">prompt</span>'}</span>
+      <span class="prod-title">${esc(p.titel)}</span>
+      <span class="small muted">${p.bronnen.length} bron${p.bronnen.length === 1 ? '' : 'nen'}${p.onderwerpen?.length ? ` · ${p.onderwerpen.slice(0, 3).map((o) => `#${esc(o)}`).join(' ')}` : ''}</span>
+    </span>
+  </div>`;
+}
+
+function usedInHtml(d) {
+  const prods = productionsOf(d.id);
+  if (!prods.length) return '';
+  return `<div class="panel used-panel">
+    <h3>${icon('pen')}Gebruikt in</h3>
+    ${prods.map(productionRow).join('')}
+    ${d.status === 'gebruikt' ? `<button class="btn ghost" data-action="unuse" style="margin-top:6px">${icon('feed')}Zet terug in de feed</button>` : ''}
+  </div>`;
+}
+
+// The content archive: what you made, with its sources, newest first.
+function archiveHtml() {
+  const v = S.vault;
+  const concepts = v.concepts();
+  const files = new Set(concepts.map((c) => c.file));
+  const known = new Set(v.content.map((p) => p.file));
+  const prods = v.content.filter((p) => files.has(p.file));
+  const older = concepts.filter((c) => !known.has(c.file));
+  const rows = prods.slice(0, 40).map(productionRow).join('')
+    + older.slice(0, 20).map((c) => `<div class="concept-row" data-action="nav" data-href="#/concept/${encodeURIComponent(c.file)}"><span class="soort">${esc(c.soort)}</span><span style="flex:1">${esc(c.titel)}</span><span class="small muted">${esc(c.datum)}</span></div>`).join('');
+  return `<div class="panel">
+    <h3>Content-archief</h3>
+    <p class="small muted">Elke prompt die je kopieert, komt hier met zijn bronnen. Die bronnen verdwijnen uit je feed; je vindt ze terug onder Content-archief en via zoeken.</p>
+    ${rows || '<p class="muted small">Nog niets gemaakt.</p>'}
+  </div>`;
+}
+
+function statsHtml() {
+  const st = contentStats(S.vault.content, S.items);
+  if (!st.totaal) return '';
+  return `<div class="panel">
+    <h3>Wat je maakt</h3>
+    <p class="small">${st.totaal} ${st.totaal === 1 ? 'stuk' : 'stukken'} content, ${st.recent} in de laatste 30 dagen.</p>
+    <div class="weights">${st.perSoort.map(([l, n]) => `<span class="w pos">${esc(l)} ${n}</span>`).join('')}</div>
+    ${st.onderwerpen.length ? `<div class="small">Onderwerpen</div>
+    <div class="stat-list">${st.onderwerpen.map((o) => `<div class="stat-row"><span class="stat-name">#${esc(o.naam)}</span><span class="small muted">${o.soorten.map(([l, n]) => `${esc(l)} ${n}`).join(', ')}</span><b>${o.aantal}</b></div>`).join('')}</div>` : ''}
+    ${st.kansen.length ? `<div class="small" style="margin-top:12px">Bewaard, nog geen content van</div>
+    <div class="chips wrap">${st.kansen.map((k) => `<button class="chip" data-action="search-topic" data-v="${esc(k.naam)}">#${esc(k.naam)}<span class="n">${k.aantal}</span></button>`).join('')}</div>` : ''}
   </div>`;
 }
 
@@ -748,7 +815,6 @@ function vandaagView() {
 
 function studioView() {
   const picked = [...S.selected].map((id) => S.items.find((i) => i.id === id)).filter(Boolean);
-  const concepts = S.vault.concepts();
   return `<div class="topbar"><div style="flex:1"><span class="dateline">Prompt-generator</span><h1>Studio</h1></div></div>
     <p class="muted">Kies bronnen (rondje op een kaart) en een vorm. Je krijgt een complete prompt met je profiel, stijl en bronnen. Plak die in Claude of ChatGPT; de app gebruikt zelf geen AI.</p>
     <div class="panel">
@@ -775,27 +841,47 @@ function studioView() {
         <button class="btn" data-action="open-chat" data-v="claude">${icon('external')}Kopieer en open Claude</button>
         <button class="btn" data-action="open-chat" data-v="chatgpt">${icon('external')}Kopieer en open ChatGPT</button>
       </div>
+      ${S.productie?.key === productionKey()
+        ? `<div class="notice small"><b>In je content-archief.</b> ${S.selected.size === 1 ? 'De bron staat' : `De ${S.selected.size} bronnen staan`} nu onder Content-archief, niet meer in je feed. <button class="link-btn" data-action="undo-production" data-v="${esc(S.productie.file)}">Ongedaan maken</button></div>`
+        : '<p class="small muted">Zodra je de prompt kopieert, gaan de bronnen samen naar je content-archief.</p>'}
       <textarea id="prompt-text" rows="10" readonly>${esc(S.prompt)}</textarea>
       <div class="field"><label for="resultaat">Resultaat bewaren (optioneel)</label>
-        <textarea id="resultaat" rows="6" placeholder="Plak hier wat Claude of ChatGPT schreef. Het komt in Concepten/ met links naar de bronnen, en de bronnen tellen als gebruikt.">${esc(S.resultaat)}</textarea></div>
-      <button class="btn block" data-action="save-result">${icon('check')}Bewaar in Concepten</button>
+        <textarea id="resultaat" rows="6" placeholder="Plak hier wat Claude of ChatGPT schreef. Het komt in Concepten/ bij de bronnen.">${esc(S.resultaat)}</textarea></div>
+      <button class="btn block" data-action="save-result">${icon('check')}Bewaar resultaat</button>
     </div>` : ''}
-    <div class="panel">
-      <h3>Concepten</h3>
-      ${concepts.length
-        ? concepts.slice(0, 30).map((c) => `<div class="concept-row" data-action="nav" data-href="#/concept/${encodeURIComponent(c.file)}"><span class="soort">${esc(c.soort)}</span><span style="flex:1">${esc(c.titel)}</span><span class="small muted">${esc(c.datum)}</span></div>`).join('')
-        : '<p class="muted small">Nog geen concepten.</p>'}
-    </div>`;
+    ${archiveHtml()}
+    ${statsHtml()}`;
 }
 
+// A production shows its result (or a field to paste it), its topics and
+// its sources, which you can open or select again.
 function conceptView() {
   const c = S.concept;
+  if (!c) return '<div class="detail"><div class="empty"><div class="spinner" style="margin:0 auto"></div></div></div>';
+  const p = productionByFile(c.file);
+  const sources = p ? p.bronnen.map((id) => S.items.find((i) => i.id === id)).filter(Boolean) : [];
   return `<div class="detail">
     <button class="btn ghost back" data-action="nav" data-href="#/studio">${icon('back')}Studio</button>
-    ${c ? `<div class="row" style="justify-content:space-between"><span class="type">${esc(c.soort || '')}</span><button class="btn" data-action="copy-concept">${icon('copy')}Kopieer</button></div>
-      <h2>${esc(c.titel || c.file)}</h2>
-      <div class="md">${md(c.markdown)}</div>` : '<div class="empty"><div class="spinner" style="margin:0 auto"></div></div>'}
+    <div class="row" style="justify-content:space-between"><span class="type">${esc(p?.label || c.soort || '')}${p ? ` · ${esc(shortDate(p.datum))}` : ''}</span>${!p || p.klaar ? `<button class="btn" data-action="copy-concept">${icon('copy')}Kopieer</button>` : ''}</div>
+    <h2>${esc(c.titel || c.file)}</h2>
+    ${p?.onderwerpen?.length ? `<div class="tags" style="margin:2px 0 12px">${p.onderwerpen.map((o) => `<span class="tag">#${esc(o)}</span>`).join('')}</div>` : ''}
+    ${p && !p.klaar ? `<div class="panel">
+      <h3>Nog geen resultaat</h3>
+      <p class="small muted">De prompt ging naar je chat. Plak hier wat Claude of ChatGPT schreef.</p>
+      <textarea id="concept-result" rows="6" placeholder="Plak het resultaat"></textarea>
+      <button class="btn primary block" data-action="save-concept-result" style="margin-top:10px">${icon('check')}Bewaar resultaat</button>
+    </div>` : `<div class="md">${md(conceptText(c))}</div>`}
+    ${sources.length ? `<h3 class="section-title">Bronnen (${sources.length})</h3><div class="list">${sources.map(card).join('')}</div>` : ''}
+    ${p ? `<div class="make-row" style="margin-top:14px">
+      <button class="btn" data-action="reuse-sources">${icon('sparkle')}Maak iets anders met deze bronnen</button>
+      <button class="btn ghost danger" data-action="undo-production">Haal uit content-archief</button>
+    </div>` : ''}
   </div>`;
+}
+
+// The result without the sections the app adds for Obsidian.
+function conceptText(c) {
+  return productionByFile(c.file) ? removeSection(removeSection(c.markdown, 'Bronnen in de vault'), 'Onderwerpen').trim() : c.markdown;
 }
 
 function shortcutUrl() {
@@ -941,12 +1027,12 @@ function syncText() {
 
 function sidebarHtml() {
   const nav = (href, ic, label, active, count = '') => `<a class="nav-item ${active ? 'active' : ''}" href="${href}">${icon(ic)}${label}${count !== '' ? `<span class="count">${count}</span>` : ''}</a>`;
-  const onFeed = (S.view === 'feed' || (S.view === 'item' && S.itemFrom !== 'vandaag')) && !S.map;
+  const onFeed = (S.view === 'feed' || (S.view === 'item' && !['vandaag', 'concept'].includes(S.itemFrom))) && !S.map;
   return `<div class="brand"><img src="icon.svg" alt=""><div>Contentmachine<small>NinA AI Agency</small></div></div>
     <button class="btn primary block" data-action="add" style="margin-bottom:10px">${icon('plus')}Bewaar link of idee</button>
-    ${nav('#/', 'feed', 'Feed', onFeed, S.items.filter((i) => i.status !== 'archief').length)}
+    ${nav('#/', 'feed', 'Feed', onFeed, S.items.filter(isActive).length)}
     ${nav('#/vandaag', 'sun', 'Vandaag', S.view === 'vandaag' || (S.view === 'item' && S.itemFrom === 'vandaag'), reviewWaiting() ? 'nieuw' : '')}
-    ${nav('#/studio', 'pen', 'Studio', S.view === 'studio' || S.view === 'concept', S.selected.size || '')}
+    ${nav('#/studio', 'pen', 'Studio', S.view === 'studio' || S.view === 'concept' || (S.view === 'item' && S.itemFrom === 'concept'), S.selected.size || '')}
     ${nav('#/instellingen', 'settings', 'Instellingen', S.view === 'instellingen')}
     <div class="nav-label">Mappen</div>
     ${folderList().map((f) => nav(`#/map/${encodeURIComponent(f.naam)}`, f.naam === 'Inbox' ? 'inbox' : 'folder', esc(f.naam), S.map === f.naam && (S.view === 'map' || S.view === 'item'), f.aantal)
@@ -958,11 +1044,12 @@ function sidebarHtml() {
 function tabbarHtml() {
   const tab = (href, ic, label, active, badge = 0) => `<button class="tab ${active ? 'active' : ''}" data-action="nav" data-href="${href}"><span class="tab-icon">${icon(ic)}${badge === true ? '<span class="badge dot"></span>' : badge ? `<span class="badge">${badge}</span>` : ''}</span>${label}</button>`;
   const fromToday = S.view === 'item' && S.itemFrom === 'vandaag';
+  const fromStudio = S.view === 'item' && S.itemFrom === 'concept';
   return `<nav class="tabbar">
-    ${tab('#/', 'feed', 'Feed', S.view === 'feed' || (S.view === 'item' && !S.map && !fromToday))}
+    ${tab('#/', 'feed', 'Feed', S.view === 'feed' || (S.view === 'item' && !S.map && !fromToday && !fromStudio))}
     ${tab('#/vandaag', 'sun', 'Vandaag', S.view === 'vandaag' || fromToday, reviewWaiting())}
     ${tab('#/mappen', 'grid', 'Mappen', S.view === 'mappen' || S.view === 'map')}
-    ${tab('#/studio', 'pen', 'Studio', S.view === 'studio' || S.view === 'concept', S.selected.size)}
+    ${tab('#/studio', 'pen', 'Studio', S.view === 'studio' || S.view === 'concept' || fromStudio, S.selected.size)}
     ${tab('#/instellingen', 'settings', 'Instellingen', S.view === 'instellingen')}
   </nav>`;
 }
@@ -1049,6 +1136,7 @@ function render() {
   else if (S.view === 'vandaag') main = vandaagView();
   else if (S.view === 'item' && !desktop) main = detailHtml();
   else if (S.view === 'item' && S.itemFrom === 'vandaag') main = vandaagView();
+  else if (S.view === 'item' && S.itemFrom === 'concept' && S.concept) main = conceptView();
   else main = feedView();
 
   const mainScroll = $('.main')?.scrollTop || 0;
@@ -1183,14 +1271,109 @@ function pickWeek() {
 
 async function buildCurrentPrompt() {
   const items = await Promise.all([...S.selected].filter((id) => S.vault.has(id)).map((id) => S.vault.get(id)));
+  const { onderwerpen } = topicsOf(items.map((x) => x.meta), bundleModel());
+  const own = S.productie?.key === productionKey() ? S.productie.file : '';
   S.prompt = buildPrompt({
     soort: S.soort,
     items,
     instructie: S.instructie,
     profiel: S.vault.system['profiel.md'],
     stijl: S.vault.system['stijl.md'],
+    eerder: earlierAbout(S.vault.content, onderwerpen, { exclude: own }),
   });
   S.resultaat = '';
+}
+
+// ---------- content archive ----------
+const conceptLink = (file) => `[[${file.replace(/\.md$/, '')}]]`;
+const noteLink = (meta) => `- [[${meta.path.split('/')[1].replace(/\.md$/, '')}]]`;
+const productionKey = () => `${S.soort}:${[...S.selected].filter((id) => S.vault.has(id)).sort().join(',')}`;
+const productionsOf = (id) => (S.vault?.content || []).filter((p) => p.bronnen.includes(id));
+const productionByFile = (file) => S.vault?.content.find((p) => p.file === file);
+
+// The prompt went to a chat: its sources become one production in the
+// content archive, with a note in Concepten/, and leave the feed.
+async function recordProduction() {
+  const v = S.vault;
+  const ids = [...S.selected].filter((id) => v.has(id));
+  if (!ids.length || !S.prompt) return null;
+  const key = productionKey();
+  if (S.productie?.key === key) return productionByFile(S.productie.file) || null;
+  const today = localDay();
+  const same = v.content.find((p) => p.soort === S.soort && localDay(new Date(p.datum)) === today && sameSet(p.bronnen, ids));
+  if (same) {
+    S.productie = { key, file: same.file };
+    return same;
+  }
+  const metas = ids.map((id) => v.meta(id));
+  const { onderwerpen, mappen } = topicsOf(metas, bundleModel());
+  const spec = PROMPT_SOORTEN[S.soort];
+  const titel = productionTitle(metas, onderwerpen);
+  const datum = new Date().toISOString();
+  const instructie = S.instructie.trim() || undefined;
+  const file = v.writeConcept(
+    { titel, soort: spec.label, datum, status: 'prompt', bronnen: ids, onderwerpen, instructie },
+    conceptBody({ titel, label: spec.label, links: metas.map(noteLink), onderwerpen, datum }),
+  );
+  const p = { file, datum, soort: S.soort, label: spec.label, titel, bronnen: ids, onderwerpen, mappen, instructie, klaar: false, vorige: Object.fromEntries(metas.map((m) => [m.id, m.status])) };
+  // Set before the first await, so a second tap cannot record it twice.
+  S.productie = { key, file };
+  v.saveContent([p, ...v.content]);
+  for (const m of metas) {
+    try {
+      const updated = await v.update(m.id, { status: 'gebruikt', gebruikt_in: [...(m.gebruikt_in || []), conceptLink(file)] });
+      v.learner.signal(updated, 'gebruikt');
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+  refreshItems();
+  if (S.view === 'studio') render();
+  else renderList();
+  return p;
+}
+
+// The result you pasted goes into the production's note, above its sources.
+function fillProduction(p, text) {
+  const v = S.vault;
+  const titel = (text.match(/^# (.+)$/m)?.[1] || p.titel).trim().slice(0, 100);
+  const metas = p.bronnen.filter((id) => v.has(id)).map((id) => v.meta(id));
+  v.updateConcept(
+    p.file,
+    { titel, soort: p.label, datum: p.datum, status: 'klaar', bronnen: p.bronnen, onderwerpen: p.onderwerpen, instructie: p.instructie },
+    conceptBody({ titel, label: p.label, links: metas.map(noteLink), onderwerpen: p.onderwerpen, resultaat: text, datum: p.datum }),
+  );
+  v.saveContent(v.content.map((x) => (x.file === p.file ? { ...x, titel, klaar: true } : x)));
+}
+
+// Undo: the note goes, the sources return to where they were.
+async function undoProduction(p) {
+  const v = S.vault;
+  const rest = v.content.filter((x) => x.file !== p.file);
+  v.saveContent(rest);
+  for (const id of p.bronnen) {
+    if (!v.has(id)) continue;
+    const meta = v.meta(id);
+    const links = (meta.gebruikt_in || []).filter((l) => l !== conceptLink(p.file));
+    const patch = { gebruikt_in: links.length ? links : undefined };
+    if (meta.status === 'gebruikt' && !rest.some((x) => x.bronnen.includes(id))) {
+      const before = p.vorige?.[id];
+      patch.status = before && before !== 'gebruikt' ? before : 'gelezen';
+    }
+    try {
+      const m = await v.update(id, patch);
+      v.learner.signal(m, 'gebruikt', -1);
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+  try {
+    v.removeConcept(p.file);
+  } catch {
+    // already gone in Obsidian
+  }
+  if (S.productie?.file === p.file) S.productie = null;
+  refreshItems();
 }
 
 // ---------- daily review ----------
@@ -1317,6 +1500,11 @@ function hideMarkBar() {
   document.getElementById('mark-bar')?.classList.remove('show');
 }
 
+// Copying the prompt by hand counts as taking it to a chat.
+document.addEventListener('copy', (ev) => {
+  if (ev.target instanceof Element && ev.target.closest('#prompt-text')) recordProduction().catch((e) => toast(e.message));
+});
+
 let markTimer;
 document.addEventListener('selectionchange', () => {
   clearTimeout(markTimer);
@@ -1439,37 +1627,63 @@ const actions = {
       toast(e.message);
     }
   },
-  'copy-prompt': () => copy(S.prompt, 'Prompt gekopieerd, plak hem in je chat'),
+  'copy-prompt': async () => {
+    const fresh = S.productie?.key !== productionKey();
+    await copy(S.prompt, fresh ? 'Gekopieerd. De bronnen staan nu in je content-archief' : 'Prompt gekopieerd, plak hem in je chat');
+    recordProduction().catch((e) => toast(e.message));
+  },
   'open-chat': async (el) => {
     const links = chatLinks(S.prompt);
     // Open first: iOS blocks pop-ups that come after an await.
     const win = window.open(links[el.dataset.v], '_blank');
     await copy(S.prompt, 'Prompt gekopieerd, plak hem in de chat');
+    recordProduction().catch((e) => toast(e.message));
     if (!win) location.href = links[el.dataset.v];
   },
   'save-result': async () => {
     const text = ($('#resultaat')?.value || '').trim();
     if (!text) return toast('Plak eerst het resultaat');
-    const items = [...S.selected].filter((id) => S.vault.has(id)).map((id) => S.vault.meta(id));
-    const spec = PROMPT_SOORTEN[S.soort];
-    const titel = (text.match(/^# (.+)$/m)?.[1] || spec.label).trim().slice(0, 100);
-    const links = items.map((m) => `- [[${m.path.split('/')[1].replace(/\.md$/, '')}]]`).join('\n');
-    const file = S.vault.writeConcept(
-      { titel, soort: spec.label, datum: new Date().toISOString(), bronnen: items.map((m) => m.id), instructie: S.instructie.trim() || undefined },
-      `${text}\n\n## Bronnen in de vault\n\n${links}\n`,
-    );
-    for (const m of items) {
-      const updated = await S.vault.update(m.id, { status: 'gebruikt' });
-      S.vault.learner.signal(updated, 'gebruikt');
-    }
+    const p = await recordProduction();
+    if (!p) return toast('Kies eerst bronnen');
+    fillProduction(p, text);
     S.resultaat = '';
     S.prompt = '';
     S.selected.clear();
-    refreshItems();
-    toast('Bewaard in Concepten');
-    go(`#/concept/${encodeURIComponent(file)}`);
+    S.productie = null;
+    toast('Bewaard in je content-archief');
+    go(`#/concept/${encodeURIComponent(p.file)}`);
   },
-  'copy-concept': () => copy(S.concept.markdown),
+  'save-concept-result': async () => {
+    const text = ($('#concept-result')?.value || '').trim();
+    if (!text) return toast('Plak eerst het resultaat');
+    const p = productionByFile(S.concept.file);
+    if (!p) return;
+    fillProduction(p, text);
+    toast('Resultaat bewaard');
+    await loadConcept(p.file);
+  },
+  'undo-production': async (el) => {
+    const p = productionByFile(el.dataset.v || S.concept?.file);
+    if (!p) return;
+    if (S.view === 'concept' && !confirm('Uit je content-archief halen? De bronnen gaan terug naar je feed en de notitie in Concepten verdwijnt.')) return;
+    await undoProduction(p);
+    toast('Uit je content-archief gehaald, de bronnen staan weer in je feed');
+    if (S.view === 'concept') go('#/studio');
+    else render();
+  },
+  'reuse-sources': () => {
+    const p = productionByFile(S.concept.file);
+    S.selected = new Set(p.bronnen.filter((id) => S.vault.has(id)));
+    S.prompt = '';
+    go('#/studio');
+  },
+  unuse: () => patchItem(S.detail.id, { status: 'gelezen' }).then((m) => m && toast('Staat weer in je feed')),
+  'search-topic': (el) => {
+    S.q = el.dataset.v;
+    S.filter = 'actief';
+    go('#/');
+  },
+  'copy-concept': () => copy(conceptText(S.concept)),
   bundel: (el) => {
     S.bundel = el.dataset.v || null;
     if (S.view !== 'map') return go(`#/map/${encodeURIComponent(S.map)}`);

@@ -558,3 +558,71 @@ test('review: an empty vault does not fix an empty mix for the whole day', async
   const later = dailyReview([{ id: 'a', titel: 'A', opgeslagen: new Date(2026, 9, 22, 8).toISOString() }], empty.state, { now: new Date(2026, 9, 22, 10) });
   assert.deepEqual(later.ids, ['a']);
 });
+
+test('content: topics, title, note and statistics of what you made', async () => {
+  const { topicsOf, productionTitle, conceptBody, contentStats, earlierAbout, obsidianTag, topicKey } = await import('../lib/content.js');
+  const { parseBundles } = await import('../lib/bundles.js');
+  const model = parseBundles('drempel: 3\n\n## AI Nieuws\n\n- Claude: #claude #anthropic\n');
+  const posts = [
+    { id: 'a', titel: 'Claude Duet is live', map: 'AI Nieuws', tags: ['claude', 'duet', 'anthropic'] },
+    { id: 'b', titel: 'Duet in de praktijk', map: 'AI Nieuws', tags: ['claude', 'duet'] },
+    { id: 'c', titel: 'Wat Duet kost', map: 'AI Nieuws', tags: ['duet', 'prijzen'] },
+  ];
+  const { onderwerpen, mappen } = topicsOf(posts, model);
+  assert.deepEqual(onderwerpen, ['Claude', 'duet'], 'bundle first, then tags most sources share');
+  assert.deepEqual(mappen, ['AI Nieuws']);
+  assert.equal(productionTitle(posts, onderwerpen), 'Claude en Duet');
+  assert.equal(productionTitle([posts[0]], []), 'Claude Duet is live');
+  assert.equal(obsidianTag('Claude Duet'), '#claude-duet');
+  assert.equal(obsidianTag('2026'), '');
+  assert.equal(topicKey('#Claude'), topicKey('claude'));
+
+  const body = conceptBody({ titel: 'Claude en Duet', label: 'LinkedIn post', links: ['- [[A]]', '- [[B]]'], onderwerpen, datum: '2026-10-22T10:00:00Z' });
+  assert.match(body, /^# Claude en Duet\n\n> \[!todo\] Nog geen resultaat/);
+  assert.match(body, /## Bronnen in de vault\n\n- \[\[A\]\]\n- \[\[B\]\]/);
+  assert.match(body, /## Onderwerpen\n\n#claude #duet/);
+  assert.match(conceptBody({ titel: 'x', label: 'TikTok script', links: [], resultaat: '# Mijn post\n\nTekst' }), /^# Mijn post\n\nTekst\n\n## Bronnen/);
+
+  const prods = [
+    { file: '1.md', datum: '2026-10-22T10:00:00Z', label: 'LinkedIn post', titel: 'Claude en Duet', onderwerpen: ['Claude', 'duet'] },
+    { file: '2.md', datum: '2026-10-20T10:00:00Z', label: 'TikTok script', titel: 'Claude Code', onderwerpen: ['claude'] },
+    { file: '3.md', datum: '2026-08-01T10:00:00Z', label: 'LinkedIn post', titel: 'n8n', onderwerpen: ['n8n'] },
+  ];
+  const items = [
+    ...['x', 'y', 'z'].map((id) => ({ id, status: 'nieuw', tags: ['mistral'] })),
+    { id: 'u', status: 'gebruikt', tags: ['mistral'] },
+  ];
+  const st = contentStats(prods, items, Date.parse('2026-10-22T12:00:00Z'));
+  assert.equal(st.totaal, 3);
+  assert.equal(st.recent, 2);
+  assert.deepEqual(st.perSoort, [['LinkedIn post', 2], ['TikTok script', 1]]);
+  assert.deepEqual(st.onderwerpen[0], { naam: 'Claude', aantal: 2, soorten: [['LinkedIn post', 1], ['TikTok script', 1]] });
+  assert.deepEqual(st.kansen, [{ naam: 'mistral', aantal: 3 }], 'saved often, never made content of');
+
+  assert.deepEqual(earlierAbout(prods, ['claude'], { exclude: '1.md' }), [{ datum: '2026-10-20', label: 'TikTok script', titel: 'Claude Code' }]);
+  const prompt = buildPrompt({ soort: 'linkedin', items: [], eerder: earlierAbout(prods, ['claude']) });
+  assert.match(prompt, /## Wat ik hier eerder over maakte\n\n- 2026-10-22, LinkedIn post: Claude en Duet\n- 2026-10-20, TikTok script: Claude Code\n\nKies een nieuwe invalshoek/);
+});
+
+test('content: links to the content survive Obsidian, the log syncs with the vault', async () => {
+  const meta = parseNote('---\nid: a\ntitel: T\ngebruikt_in:\n  - "[[2026-10-22 LinkedIn post - Claude]]"\n  - [[Handmatig]]\n---\n\nx').data;
+  const { normalizeMeta } = await import('../lib/frontmatter.js');
+  assert.deepEqual(normalizeMeta(meta).gebruikt_in, ['[[2026-10-22 LinkedIn post - Claude]]', '[[Handmatig]]']);
+  assert.match(stringifyNote({ id: 'a', gebruikt_in: ['[[X]]'] }, ''), /gebruikt_in:\n {2}- "\[\[X\]\]"/);
+
+  const store = new LocalStore({ storage: memoryStorage() });
+  const vault = new Vault(store, { root: '' });
+  vault.flushDelay = 10_000;
+  await vault.load();
+  const file = vault.writeConcept({ titel: 'Claude', soort: 'LinkedIn post', datum: '2026-10-22T10:00:00Z' }, '# Claude\n');
+  vault.saveContent([{ file, datum: '2026-10-22T10:00:00Z', label: 'LinkedIn post', titel: 'Claude', bronnen: ['a'], onderwerpen: ['claude'] }]);
+  vault.updateConcept(file, { titel: 'Claude', status: 'klaar' }, '# Mijn post\n');
+  await vault.flush();
+  const again = new Vault(store, { root: '' });
+  await again.load();
+  assert.equal(again.content[0].file, file);
+  assert.match((await again.readConcept(file)).body, /Mijn post/);
+  again.removeConcept(file);
+  await again.flush();
+  assert.ok(!again.concepts().some((c) => c.file === file));
+});

@@ -176,7 +176,7 @@ De mix staat in `_systeem/herhaling.json`, dus je iPhone en je Mac zien dezelfde
 
 | Actie | Signaal |
 | --- | --- |
-| Gebruikt in een bewaard concept | sterk positief |
+| Prompt gekopieerd (content gemaakt) | sterk positief |
 | Ster, duim omhoog | positief |
 | Markeren | positief |
 | Openen | licht positief |
@@ -194,7 +194,23 @@ In de **Studio** kies je bronnen (het rondje op een kaart, of "Beste van deze we
 - de opdracht per vorm, waaronder de vaste opbouw van je nieuwsbrief,
 - per bron de titel, link, samenvatting, **je eigen notities**, **je markeringen** en een fragment.
 
-Tik op **Kopieer en open Claude** (of ChatGPT) en plak. Wil je het resultaat bewaren? Plak het terug in de app. Het komt dan in `Concepten/` met links naar de bronnen, en de bronnen tellen als gebruikt.
+Tik op **Kopieer en open Claude** (of ChatGPT) en plak. Wil je het resultaat bewaren? Plak het terug in de app, meteen of later.
+
+Heb je hier eerder content over gemaakt, dan staat dat in de prompt onder "Wat ik hier eerder over maakte", met de vraag om een nieuwe invalshoek.
+
+## Content-archief
+
+Zodra je een prompt kopieert (of opent in Claude of ChatGPT), worden de gekozen bronnen samen één stuk content:
+
+- Ze verdwijnen uit je feed (filter **Actueel**) en staan onder het filter **Content-archief**, met een groen label van wat je ervan maakte. Zoeken vindt ze nog steeds.
+- In `Concepten/` komt een notitie, bijvoorbeeld `2026-10-22 LinkedIn post - Claude en Duet.md`, met links naar de bronnen en de onderwerpen als tags. Elke bron krijgt de eigenschap `gebruikt_in` met een link terug. In Obsidian zie je de bundel dus van twee kanten.
+- Plak je later het resultaat (in de Studio of op de notitie zelf), dan komt dat bovenaan de notitie.
+- Je kunt de bronnen gewoon opnieuw gebruiken: **Maak iets anders met deze bronnen**, of selecteer ze los. Elk nieuw stuk komt er apart bij.
+- Per ongeluk? **Ongedaan maken** zet de bronnen terug in je feed en haalt de notitie weg. Eén item terugzetten kan ook: **Zet terug in de feed**.
+
+**Wat je maakt** in de Studio laat zien hoeveel content je maakte, per soort en per onderwerp ("#Claude: LinkedIn post 3, TikTok script 1"), en welke onderwerpen je vaak bewaart maar nog nooit gebruikte. Tik op zo'n onderwerp om die items te zien.
+
+Gebruiken telt als sterkste signaal voor de ranking: items over dezelfde onderwerpen, makers en bronnen stijgen. Het logboek staat in `_systeem/content.json`.
 
 ## Optioneel: Claude Haiku
 
@@ -207,7 +223,7 @@ Contentmachine/
   Inbox/                    binnengekomen vanaf je iPhone, of nog niet zeker
   AI Agents/                mappen uit je regels of die jij aanmaakt
     2026-10-22 Titel.md
-  Concepten/                content die je via een prompt liet maken en bewaarde
+  Concepten/                je content-archief: per stuk content de bronnen en het resultaat
   _systeem/
     regels.md               trefwoorden per map (pas gerust aan)
     bundels.md              bundels van hashtags per map
@@ -215,6 +231,7 @@ Contentmachine/
     stijl.md                hoe je schrijft, gaat mee in elke prompt
     index.json, leren.json  beheert de app zelf
     herhaling.json          de mix van Vandaag en wanneer elk item terugkomt
+    content.json            welke content je maakte, van welke bronnen en onderwerpen
 ```
 
 Je notities onder **Mijn notities** en je **Markeringen** worden nooit overschreven. Verplaats, hernoem of bewerk gerust in Obsidian. Bij een conflict wint de versie die al op GitHub staat.
@@ -252,6 +269,7 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | `lib/textcache.js` | teksten op het apparaat bewaren (IndexedDB) |
 | `lib/highlights.js` | markeringen met notities |
 | `lib/review.js` | Vandaag: dagelijkse herhaling |
+| `lib/content.js` | content-archief: onderwerpen, statistiek, eerder gemaakt |
 | `lib/prompts.js` | prompt-generator |
 | `lib/haiku.js` | optionele Claude Haiku-stap |
 | `lib/frontmatter.js` | YAML-eigenschappen lezen en schrijven |
