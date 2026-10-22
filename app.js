@@ -49,6 +49,7 @@ const FILTERS = [['actief', 'Alles'], ['nieuw', 'Ongelezen'], ['ster', 'Ster'], 
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
+const OBSIDIAN_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)';
 
 // ---------- per-device settings ----------
 const local = {
@@ -279,8 +280,10 @@ async function loadVault() {
   if (captures.length) {
     S.verwerken = { klaar: 0, totaal: captures.length };
     render();
-    await processInbox(S.vault, captures, {
+    let empty = 0;
+    const done = await processInbox(S.vault, captures, {
       ...pipelineOpts(),
+      onEmpty: () => { empty += 1; },
       onProgress: (klaar, totaal) => {
         S.verwerken = { klaar, totaal };
         refreshItems();
@@ -288,7 +291,8 @@ async function loadVault() {
       },
     });
     S.verwerken = null;
-    toast(`${captures.length} nieuwe link${captures.length === 1 ? '' : 's'} geordend`);
+    if (done.length) toast(`${done.length} nieuwe link${done.length === 1 ? '' : 's'} geordend`);
+    if (empty) setTimeout(() => toast(`${empty} lege deling${empty === 1 ? '' : 'en'} opgeruimd: de Opdracht stuurde geen link mee`), done.length ? 3000 : 0);
     S.vault.flush().catch((e) => toast(e.message));
   }
   refreshItems();
@@ -741,6 +745,17 @@ function settingsView() {
         <li>Actie <b>Toon melding</b>: <code>Bewaard in Contentmachine</code>.</li>
       </ol>
       <p class="small muted">Zet deze webapp op je beginscherm: Safari, Deel, <b>Zet op beginscherm</b>. Open je hem, dan worden nieuwe links geordend.</p>
+    </div>`}
+
+    ${c.modus === 'lokaal' ? '' : `<div class="panel">
+      <h3>Obsidian op je Mac</h3>
+      <p class="small muted">Je items staan als Markdown in GitHub (${esc(c.owner)}/${esc(c.repo)}). Obsidian op je Mac houdt een kopie bij die elke 5 minuten synchroniseert. Eenmalig instellen:</p>
+      <ol class="steps small">
+        <li>Installeer <a href="https://obsidian.md/download" target="_blank" rel="noopener">Obsidian</a> als je dat nog niet hebt.</li>
+        <li>Open <b>Terminal</b>, plak deze regel en druk op Enter. Plak je token als daarom gevraagd wordt.
+          <div class="copyline"><code>${esc(OBSIDIAN_COMMAND)}</code><button class="icon-btn" data-action="copy" data-v="${esc(OBSIDIAN_COMMAND)}" aria-label="Kopieer">${icon('copy')}</button></div></li>
+        <li>In Obsidian: <b>Open folder as vault</b>, kies <code>~/Obsidian/Contentmachine</code> en daarna <b>Trust author and enable plugins</b>.</li>
+      </ol>
     </div>`}
 
     <div class="panel">

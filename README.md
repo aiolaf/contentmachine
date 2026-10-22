@@ -75,13 +75,21 @@ Delen gaat zo rechtstreeks naar GitHub, in een seconde, ook als de app dicht is.
 
 ### 6. Obsidian op je Mac
 
-**Optie A, aparte vault (simpelst).** Clone de repo, open de map als vault en installeer de community-plugin **Obsidian Git**. Zet *Auto pull interval* en *Auto commit-and-sync interval* op 1 tot 5 minuten.
+GitHub is het tussenstation: de app schrijft je items in `contentmachine-vault`, en Obsidian op je Mac houdt daar een kopie van bij via de plugin **Obsidian Git**. Eenmalig instellen:
 
-```bash
-git clone https://github.com/<account>/contentmachine-vault.git ~/Obsidian/Contentmachine
-```
+1. Installeer [Obsidian](https://obsidian.md/download) als je dat nog niet hebt.
+2. Open **Terminal**, plak deze regel en druk op Enter:
 
-**Optie B, in je bestaande vault.** Staat je vault al op GitHub (bijvoorbeeld Ninaboard)? Vul dan die repo in en zet de map op bijvoorbeeld `30_Resources/Studio/Contentmachine`. De app raakt niets buiten die map aan.
+   ```bash
+   bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)
+   ```
+
+   Het script vraagt je token (hetzelfde als in de app) en bewaart dat in de sleutelhanger van je Mac. Het haalt je vault binnen in `~/Obsidian/Contentmachine` en installeert Obsidian Git zo dat die bij het openen en daarna elke 5 minuten synchroniseert.
+3. In Obsidian: **Open folder as vault**, kies `~/Obsidian/Contentmachine` en daarna **Trust author and enable plugins**.
+
+Meteen ophalen in plaats van wachten: Cmd+P en typ "Git: Pull".
+
+**Liever in je bestaande vault (bijvoorbeeld Ninaboard)?** Dat kan als die vault al in een GitHub-repo staat. Vul dan in de app die repo in en zet de map op bijvoorbeeld `30_Resources/Studio/Contentmachine`. Staat je vault in iCloud of Obsidian Sync, gebruik dan de aparte vault hierboven. Een git-repo in een iCloud-map geeft synchronisatieproblemen.
 
 ### 7. Op je MacBook
 

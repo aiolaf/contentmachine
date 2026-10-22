@@ -414,3 +414,21 @@ test('hashtags: become the tags and leave the title', async () => {
   assert.equal(meta.titel, 'Claude werkt nu in Excel');
   assert.deepEqual(meta.tags, ['claude', 'anthropic', 'excel']);
 });
+
+test('inbox: an empty share is cleaned up, LinkedIn titles are cut to the post', async () => {
+  const store = new LocalStore({ storage: memoryStorage() });
+  const vault = new Vault(store, { root: '' });
+  vault.flushDelay = 10_000;
+  await vault.load();
+  let empty = 0;
+  const done = await processInbox(vault, [{ rel: 'Inbox/20261022-154122.md', text: '' }], { fetchImpl: noFetch, onEmpty: () => { empty += 1; } });
+  assert.equal(done.length, 0);
+  assert.equal(empty, 1);
+  assert.equal(vault.list().length, 0);
+
+  const fake = async (url) => (url.includes('microlink')
+    ? new Response(JSON.stringify({ status: 'success', data: { title: 'Grok Bot can now build reports, memos, and dashboards. Ask Bot for a page, then edit it.… | SpaceX Super Intelligence | 17 comments' } }))
+    : new Response('{}', { status: 404 }));
+  const li = await processCapture(vault, { url: 'https://lnkd.in/p/eETGUA-Z' }, { fetchImpl: fake, reader: false });
+  assert.equal(li.titel, 'Grok Bot can now build reports, memos, and dashboards.');
+});
