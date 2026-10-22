@@ -1,6 +1,6 @@
 // App shell cache: opens instantly on the iPhone, refreshes in the background.
 // Only this app's own files are cached; GitHub and other APIs always go to the network.
-const CACHE = 'cm-v8';
+const CACHE = 'cm-v9';
 const SHELL = [
   './', 'index.html', 'app.js', 'styles.css', 'icon.svg', 'manifest.webmanifest', 'apple-touch-icon.png',
   'lib/frontmatter.js', 'lib/store.js', 'lib/vault.js', 'lib/capture.js', 'lib/classify.js',

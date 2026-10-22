@@ -626,3 +626,27 @@ test('content: links to the content survive Obsidian, the log syncs with the vau
   await again.flush();
   assert.ok(!again.concepts().some((c) => c.file === file));
 });
+
+test('vault: a capture ordered just before the app closed does not break the next start', async () => {
+  const store = new LocalStore({ storage: memoryStorage() });
+  const storage = memoryStorage();
+  const first = new Vault(store, { root: 'Contentmachine', storage, storageKey: 'p' });
+  first.flushDelay = 10_000;
+  await first.load();
+  await first.flush();
+  await store.external('Contentmachine/Inbox/20261022-201214.md', 'Claude Duet is live #claude #duet\n');
+  const { captures } = await first.load();
+  const [made] = await processInbox(first, captures, { fetchImpl: noFetch });
+  // iOS freezes the app here: the note and the Inbox removal wait in local storage.
+  clearTimeout(first.timer);
+  assert.ok(store.files.has('Contentmachine/Inbox/20261022-201214.md'));
+
+  const next = new Vault(store, { root: 'Contentmachine', storage, storageKey: 'p' });
+  next.flushDelay = 10_000;
+  const again = await next.load();
+  assert.equal(again.captures.length, 0, 'not ordered twice');
+  assert.equal(next.meta(made.id).titel, 'Claude Duet is live', 'the waiting note shows right away');
+  await next.flush();
+  assert.ok(!store.files.has('Contentmachine/Inbox/20261022-201214.md'));
+  assert.ok(store.files.has(`Contentmachine/${next.meta(made.id).path}`));
+});
