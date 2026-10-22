@@ -1,0 +1,14 @@
+{
+  "name": "contentmachine",
+  "version": "2.0.0",
+  "private": true,
+  "description": "NinA Contentmachine: gratis webapp voor iPhone en Mac. Bewaar links via de Deel-knop, orden ze zonder AI en werk verder in Obsidian.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "python3 -m http.server 8080"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
