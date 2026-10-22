@@ -5,7 +5,7 @@ import { parseInput, detectType, fetchDetails } from '../lib/capture.js';
 import { tokenize, trainModel, predict, parseRules, classify, suggestTags, summarize } from '../lib/classify.js';
 import { Learner } from '../lib/learn.js';
 import { buildPrompt, chatLinks } from '../lib/prompts.js';
-import { LocalStore, GitHubStore, gitBlobSha, utf8ToBase64, base64ToUtf8 } from '../lib/store.js';
+import { LocalStore, GitHubStore, gitBlobSha, utf8ToBase64, base64ToUtf8, parseRepoInput, cleanToken } from '../lib/store.js';
 import { Vault } from '../lib/vault.js';
 import { processCapture, processInbox, backfillPreviews } from '../lib/pipeline.js';
 import { embedFor } from '../lib/embeds.js';
@@ -319,4 +319,28 @@ test('previews: stored on new items, and fetched later for older ones', async ()
   assert.equal(getSection(body, 'Mijn notities'), 'notitie');
   assert.match(getSection(body, 'Bron'), /^!\[\]\(https:\/\/site\.nl\/og\.jpg\)/);
   assert.equal(await backfillPreviews(vault, { fetchImpl: fake }), 0, 'done items are skipped');
+});
+
+test('connect: pasted links and tokens are cleaned up', () => {
+  assert.deepEqual(parseRepoInput('', 'https://github.com/aiolaf/contentmachine-vault'), { owner: 'aiolaf', repo: 'contentmachine-vault' });
+  assert.deepEqual(parseRepoInput('aiolaf', 'aiolaf/contentmachine-vault.git'), { owner: 'aiolaf', repo: 'contentmachine-vault' });
+  assert.deepEqual(parseRepoInput('@aiolaf ', ' contentmachine-vault '), { owner: 'aiolaf', repo: 'contentmachine-vault' });
+  assert.equal(cleanToken(' Bearer github_pat_abc\n'), 'github_pat_abc');
+});
+
+test('connect: a 404 is explained (token cannot see the repo, wrong owner, bad token, wrong branch)', async () => {
+  const fake = (user, repoStatus = 404) => async (url) => {
+    if (url.endsWith('/user')) return user ? new Response(JSON.stringify({ login: user })) : new Response('{}', { status: 401 });
+    if (url.endsWith('/repos/aiolaf/vault')) {
+      return repoStatus === 200 ? new Response(JSON.stringify({ private: true, default_branch: 'main', permissions: { push: true } })) : new Response('{"message":"Not Found"}', { status: 404 });
+    }
+    if (url.includes('/branches/')) return new Response('{"message":"Branch not found"}', { status: 404 });
+    return new Response('{}', { status: 404 });
+  };
+  const gh = (f, branch = 'main') => new GitHubStore({ owner: 'aiolaf', repo: 'vault', token: 't', branch, fetchImpl: f });
+  await assert.rejects(gh(fake('aiolaf')).check(), /mag aiolaf\/vault niet zien.*Only select repositories/);
+  await assert.rejects(gh(fake('iemand')).check(), /hoort bij iemand/);
+  await assert.rejects(gh(fake(null)).check(), /ongeldig of verlopen/);
+  await assert.rejects(gh(fake('aiolaf', 200), 'master').check(), /Branch "master" bestaat niet.*"main"/);
+  await gh(fake('aiolaf', 200)).check(); // empty repo on its default branch is fine
 });

@@ -1,6 +1,6 @@
 // Contentmachine: a free, static web app. No server: the vault lives in your
 // own GitHub repo (or on this device) and the browser talks to it directly.
-import { GitHubStore, LocalStore } from './lib/store.js';
+import { GitHubStore, LocalStore, parseRepoInput, cleanToken } from './lib/store.js';
 import { Vault } from './lib/vault.js';
 import { processCapture, processInbox, backfillPreviews } from './lib/pipeline.js';
 import { embedFor } from './lib/embeds.js';
@@ -957,11 +957,10 @@ function readConnectForm() {
   if (S.cfg.modus !== 'lokaal') {
     Object.assign(S.cfg, {
       modus: 'github',
-      owner: val('cfg-owner').trim(),
-      repo: val('cfg-repo').trim().replace(/\.git$/, ''),
+      ...parseRepoInput(val('cfg-owner'), val('cfg-repo')),
       branch: val('cfg-branch').trim() || 'main',
       map: val('cfg-map').trim().replace(/^\/+|\/+$/g, ''),
-      token: val('cfg-token').trim(),
+      token: cleanToken(val('cfg-token')),
     });
   }
 }
