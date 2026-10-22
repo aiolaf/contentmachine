@@ -4,6 +4,7 @@ import { GitHubStore, LocalStore, parseRepoInput, cleanToken } from './lib/store
 import { Vault } from './lib/vault.js';
 import { processCapture, processInbox, backfillPreviews } from './lib/pipeline.js';
 import { embedFor } from './lib/embeds.js';
+import { buildShortcut, inboxApiUrl, SIGN_COMMAND } from './lib/shortcut.js';
 import { buildPrompt, chatLinks, SOORTEN as PROMPT_SOORTEN } from './lib/prompts.js';
 import { trainModel } from './lib/classify.js';
 import { STATUSES, getSection } from './lib/frontmatter.js';
@@ -617,9 +618,7 @@ function conceptView() {
 }
 
 function shortcutUrl() {
-  const map = (S.cfg.map || '').replace(/^\/+|\/+$/g, '');
-  const path = [map, 'Inbox'].filter(Boolean).map(encodeURIComponent).join('/');
-  return `https://api.github.com/repos/${S.cfg.owner}/${S.cfg.repo}/contents/${path}/`;
+  return inboxApiUrl(S.cfg);
 }
 
 function connectForm() {
@@ -664,6 +663,17 @@ function settingsView() {
     ${c.modus === 'lokaal' ? '' : `<div class="panel">
       <h3>iPhone: opslaan via de Deel-knop</h3>
       <p class="small muted">Eenmalig een opdracht maken in de app Opdrachten. Daarna staat "Contentmachine" in je deelmenu in Safari, X, Instagram, LinkedIn en YouTube. Opslaan gaat rechtstreeks naar je GitHub-repo, ook als deze app dicht is.</p>
+      <div class="panel" style="box-shadow:none;background:var(--bg)">
+        <b>Makkelijkst: op je MacBook</b>
+        <ol class="steps small">
+          <li>Open deze app op je Mac en tik op <b>Download opdracht</b>. Je token staat er al in.</li>
+          <li>Open <b>Terminal</b> en plak deze regel. Die ondertekent de opdracht en opent hem in Opdrachten.
+            <div class="copyline"><code>${esc(SIGN_COMMAND)}</code><button class="icon-btn" data-action="copy" data-v="${esc(SIGN_COMMAND)}" aria-label="Kopieer">${icon('copy')}</button></div></li>
+          <li>Kies <b>Voeg opdracht toe</b>. Via iCloud staat hij binnen een minuut ook op je iPhone, in het deelmenu.</li>
+        </ol>
+        <button class="btn primary" data-action="download-shortcut">${icon('external')}Download opdracht</button>
+      </div>
+      <p class="small"><b>Of zelf bouwen op je iPhone:</b></p>
       <ol class="steps small">
         <li>Open <b>Opdrachten</b>, tik op <b>+</b>, noem de opdracht <b>Contentmachine</b>. Zet via het info-icoon <b>Toon in deelmenu</b> aan, met invoer <b>URL's</b> en <b>Tekst</b>.</li>
         <li>Actie <b>Tekst</b> met als inhoud <b>Opdrachtinvoer</b>.</li>
@@ -1085,6 +1095,16 @@ const actions = {
     go(`#/concept/${encodeURIComponent(file)}`);
   },
   'copy-concept': () => copy(S.concept.markdown),
+  'download-shortcut': () => {
+    const xml = buildShortcut({ owner: S.cfg.owner, repo: S.cfg.repo, branch: S.cfg.branch, map: S.cfg.map, token: S.cfg.token });
+    const url = URL.createObjectURL(new Blob([xml], { type: 'application/octet-stream' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: 'Contentmachine.shortcut' });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast('Gedownload. Plak nu de regel in Terminal.');
+  },
   embed: () => {
     S.embed = S.detail.id;
     renderDetail();

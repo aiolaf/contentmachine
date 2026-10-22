@@ -9,6 +9,7 @@ import { LocalStore, GitHubStore, gitBlobSha, utf8ToBase64, base64ToUtf8, parseR
 import { Vault } from '../lib/vault.js';
 import { processCapture, processInbox, backfillPreviews } from '../lib/pipeline.js';
 import { embedFor } from '../lib/embeds.js';
+import { buildShortcut } from '../lib/shortcut.js';
 import { youtubeId, safeImage } from '../lib/capture.js';
 import { REGELS } from '../lib/seeds.js';
 
@@ -343,4 +344,17 @@ test('connect: a 404 is explained (token cannot see the repo, wrong owner, bad t
   await assert.rejects(gh(fake(null)).check(), /ongeldig of verlopen/);
   await assert.rejects(gh(fake('aiolaf', 200), 'master').check(), /Branch "master" bestaat niet.*"main"/);
   await gh(fake('aiolaf', 200)).check(); // empty repo on its default branch is fine
+});
+
+test('shortcut: saves straight to the vault Inbox, asks for the token only when it is not known', () => {
+  const asks = buildShortcut({ owner: 'aiolaf', repo: 'contentmachine-vault', map: 'Contentmachine' });
+  assert.match(asks, /<string>https:\/\/api\.github\.com\/repos\/aiolaf\/contentmachine-vault\/contents\/Contentmachine\/Inbox\/&#xFFFC;\.md<\/string>/);
+  assert.match(asks, /<string>PUT<\/string>/);
+  assert.match(asks, /<key>WFBase64LineBreakMode<\/key>\s*<string>None<\/string>/);
+  assert.match(asks, /yyyyMMdd-HHmmss/);
+  assert.match(asks, /Plak je GitHub-token/);
+  const filled = buildShortcut({ owner: 'aiolaf', repo: 'contentmachine-vault', token: 'github_pat_x&y' });
+  assert.ok(!filled.includes('Plak je GitHub-token'));
+  assert.ok(filled.includes('github_pat_x&amp;y'), 'token is XML-escaped');
+  assert.ok(filled.includes('<key>{7, 1}</key>'), 'token variable sits right after "Bearer "');
 });
