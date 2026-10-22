@@ -16,6 +16,10 @@ import { parseHighlights, withHighlights, cleanHighlight, sameHighlight, MARKERI
 import { dailyReview, stopReview, daysUntil, highlightOfDay, localDay } from './lib/review.js';
 import { openTextCache } from './lib/textcache.js';
 import { topicsOf, productionTitle, conceptBody, contentStats, earlierAbout, sameSet } from './lib/content.js';
+import {
+  toast as showToast, confirmSlide, rollHtml, animateRolls, burst, pop, switchHtml, flipSwitch,
+  ringHtml, setRing, checkSvg, setGenerate, flyOut, setupDeck, setupTilt,
+} from './ui.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -47,6 +51,7 @@ const ICONS = {
   play: '<polygon points="7 4 20 12 7 20 7 4"/>',
   layers: '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
   chevron: '<path d="m6 9 6 6 6-6"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   marker: '<path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
 };
@@ -59,7 +64,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '22 okt 2026, 22:00';
+const VERSIE = '22 okt 2026, 23:00';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
 const OBSIDIAN_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)';
 
@@ -133,21 +138,18 @@ const S = {
   openStacks: new Set(),
   archiefSoort: null,
   conceptFrom: 'studio',
+  deck: null,
+  gen: null,
+  pop: null,
 };
 
-let toastTimer;
-function toast(msg) {
-  const el = $('#toast');
-  el.textContent = msg;
-  el.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
-}
+// A toast in the stack; pass { actie } for an "Ongedaan maken" button.
+const toast = (msg, opts) => showToast(msg, opts);
 
-async function copy(text, label = 'Gekopieerd') {
+async function copy(text, label = 'Gekopieerd', opts) {
   try {
     await navigator.clipboard.writeText(text);
-    toast(label);
+    toast(label, opts);
     return true;
   } catch {
     prompt('Kopieer handmatig:', text);
@@ -322,6 +324,7 @@ async function loadVaultOnce() {
   refreshItems();
   if (moves.length) toast(`${moves.length} verplaatsing${moves.length === 1 ? '' : 'en'} uit Obsidian geleerd`);
   if (captures.length) {
+    local.set('cm_inbox_seen', true);
     S.verwerken = { klaar: 0, totaal: captures.length };
     render();
     let empty = 0;
@@ -518,6 +521,7 @@ async function onRoute() {
   // A newly opened item starts at the top; back in the feed you land where you were.
   if (S.view === 'item' && prev !== 'item') S.itemFrom = prev;
   if (S.view === 'concept' && !['concept', 'item'].includes(prev)) S.conceptFrom = prev;
+  if (!['sorteren', 'item'].includes(S.view)) S.deck = null;
   // Done with a production: a fresh start for the next selection.
   if (prev === 'studio' && !['studio', 'concept'].includes(S.view) && S.vault && S.productie?.key === productionKey()) {
     S.selected.clear();
@@ -627,9 +631,13 @@ function listHtml() {
   }
   const items = visibleItems();
   const searching = parseQuery(S.q).length;
+  const unread = S.items.filter((i) => i.status === 'nieuw' && (!S.map || i.map === S.map)).length;
+  const banner = !searching && unread >= 2 && ['actief', 'nieuw'].includes(S.filter)
+    ? `<button class="sort-banner" data-action="nav" data-href="#/sorteren"><span class="mini-deck" aria-hidden="true"><i></i><i></i><i></i></span><span class="sort-text"><b>${unread} ongelezen</b><small>Snel sorteren: veeg naar rechts of links</small></span><span class="chev-r">${icon('chevron')}</span></button>`
+    : '';
   const hint = searching && S.tekst ? `<p class="small muted search-hint"><span class="spinner"></span>Volledige tekst laden: ${S.tekst.klaar} van ${S.tekst.totaal} notities. De resultaten vullen zich aan.</p>` : '';
   const none = searching ? 'Niets gevonden, ook niet in de volledige tekst.' : 'Niets gevonden met dit filter.';
-  return busy + hint + (items.length ? items.map(card).join('') : `<div class="empty"><p>${none}</p></div>`);
+  return busy + banner + hint + (items.length ? items.map(card).join('') : `<div class="empty"><p>${none}</p></div>`);
 }
 
 function chipsHtml() {
@@ -641,7 +649,7 @@ function chipsHtml() {
     gebruikt: base.filter((i) => i.status === 'gebruikt').length,
     archief: base.filter((i) => i.status === 'archief').length,
   };
-  return FILTERS.map(([k, label]) => `<button class="chip ${S.filter === k ? 'on' : ''}" data-action="filter" data-v="${k}">${label}<span class="n">${count[k]}</span></button>`).join('');
+  return FILTERS.map(([k, label]) => `<button class="chip ${S.filter === k ? 'on' : ''}" data-action="filter" data-v="${k}">${label}<span class="n">${rollHtml(count[k], `chip:${S.map || ''}:${k}`)}</span></button>`).join('');
 }
 
 // Newspaper-style line above the feed title: weekday, date and what is unread.
@@ -678,7 +686,7 @@ function foldersView() {
 // The content archive as a folder: a little stack, one card per piece of content.
 function archiveFolderHtml() {
   const prods = archivedProductions();
-  return `<div class="card archive-folder" data-action="nav" data-href="#/archief">
+  return `<div class="card archive-folder tilt" data-action="nav" data-href="#/archief">
     <div class="row">${icon('layers')}<h3 style="margin:0;flex:1">Content-archief</h3><span class="muted">${prods.length}</span></div>
     <p class="small muted" style="margin-top:6px">${prods.length ? `Laatst: ${esc(prods[0].label)}, ${esc(prods[0].titel)}` : 'Wat je van je bronnen maakte, als stapeltjes.'}</p>
   </div>`;
@@ -712,14 +720,14 @@ function detailHtml() {
     <div class="meta-line">${d.bron ? `<span>${esc(d.bron)}</span>` : ''}${d.auteur ? `<span>${esc(d.auteur)}</span>` : ''}<span>${esc(d.status)}</span></div>
     ${d.invalid ? '<div class="panel error-text">De eigenschappen van deze notitie zijn ongeldig (YAML). Herstel ze in Obsidian; tot die tijd kun je hem hier niet aanpassen.</div>' : ''}
     <div class="action-row">
-      <button class="icon-btn ${d.ster ? 'on' : ''}" data-action="star" aria-label="Ster">${icon('star', d.ster)}</button>
-      <button class="icon-btn ${d.oordeel === 1 ? 'on-good' : ''}" data-action="vote" data-v="1" aria-label="Meer hiervan">${icon('up')}</button>
-      <button class="icon-btn ${d.oordeel === -1 ? 'on-bad' : ''}" data-action="vote" data-v="-1" aria-label="Minder hiervan">${icon('down')}</button>
+      <button class="icon-btn ${d.ster ? 'on' : ''}" data-action="star" data-pop="star" aria-pressed="${d.ster}" aria-label="Ster">${icon('star', d.ster)}</button>
+      <button class="icon-btn ${d.oordeel === 1 ? 'on-good' : ''}" data-action="vote" data-v="1" data-pop="vote1" aria-pressed="${d.oordeel === 1}" aria-label="Meer hiervan">${icon('up')}</button>
+      <button class="icon-btn ${d.oordeel === -1 ? 'on-bad' : ''}" data-action="vote" data-v="-1" data-pop="vote-1" aria-pressed="${d.oordeel === -1}" aria-label="Minder hiervan">${icon('down')}</button>
       <button class="icon-btn ${d.status === 'archief' ? 'on' : ''}" data-action="archive" aria-label="Archiveer">${icon('archive')}</button>
       ${origineel ? `<a class="btn" href="${esc(origineel)}" target="_blank" rel="noopener">${icon('external')}Origineel</a>` : ''}
       <button class="icon-btn" data-action="delete" aria-label="Verwijder">${icon('trash')}</button>
     </div>
-    <div class="scorebox"><div class="big">${shown(d.rank)}</div><div class="why">${d.ordening === 'haiku' ? 'Geordend met Claude Haiku.' : d.ordening ? `Map gekozen via ${esc(d.ordening)}.` : ''}<br><span class="small">Basis ${d.score} ${d.boost >= 0 ? '+' : ''}${d.boost} geleerd${d.ster ? ', +15 ster' : ''}${d.oordeel ? `, ${d.oordeel > 0 ? '+' : ''}${d.oordeel * 10} duim` : ''}</span></div></div>
+    <div class="scorebox"><div class="big">${rollHtml(shown(d.rank), 'score')}</div><div class="why">${d.ordening === 'haiku' ? 'Geordend met Claude Haiku.' : d.ordening ? `Map gekozen via ${esc(d.ordening)}.` : ''}<br><span class="small">Basis ${d.score} ${d.boost >= 0 ? '+' : ''}${d.boost} geleerd${d.ster ? ', +15 ster' : ''}${d.oordeel ? `, ${d.oordeel > 0 ? '+' : ''}${d.oordeel * 10} duim` : ''}</span></div></div>
     ${usedInHtml(d)}
     <div class="panel">
       <h3>Maak er content van</h3>
@@ -789,7 +797,7 @@ function stackHtml(p) {
   const sources = p.bronnen.map((id) => S.items.find((i) => i.id === id)).filter(Boolean);
   const n = sources.length;
   return `<section class="stack ${open ? 'open' : ''}" data-n="${Math.min(n, 3)}">
-    <div class="stack-top" data-action="stack" data-v="${esc(p.file)}" role="button" aria-expanded="${open}">
+    <div class="stack-top tilt" data-action="stack" data-v="${esc(p.file)}" role="button" aria-expanded="${open}">
       <div class="card-top"><span class="type">${esc(p.label)}</span><span>${shortDate(p.datum)}</span>${p.klaar ? '' : '<span class="pill" title="Resultaat nog niet bewaard">prompt</span>'}</div>
       <h3>${esc(p.titel)}</h3>
       ${p.onderwerpen?.length ? `<div class="tags">${p.onderwerpen.slice(0, 4).map((o) => `<span class="tag">#${esc(o)}</span>`).join('')}</div>` : ''}
@@ -887,6 +895,139 @@ function vandaagView() {
     <button class="btn primary block" data-action="review-prompt" style="margin-top:14px">${icon('sparkle')}Maak een nieuwsbrief van deze mix</button>`;
 }
 
+// ---------- quick sort: a deck of unread items ----------
+function startDeck() {
+  const ids = S.items.filter((i) => i.status === 'nieuw' && (!S.map || i.map === S.map)).sort((a, b) => b.rank - a.rank).map((i) => i.id);
+  S.deck = { ids, totaal: ids.length, ster: 0, archief: 0, later: 0, uitgesteld: new Set(), geschiedenis: [] };
+}
+
+function deckCard(i, n) {
+  const img = httpsImage(i.afbeelding);
+  const letter = String(i.bron || TYPE_LABEL[i.type] || i.titel || '?').replace(/^www\./, '').charAt(0).toUpperCase() || '?';
+  return `<article class="deck-card ${n === 0 ? 'top' : ''}" data-i="${n}" data-id="${esc(i.id)}" ${n === 0 ? `aria-label="${esc(i.titel)}"` : 'aria-hidden="true"'}>
+    <span class="stamp yes">Ster</span><span class="stamp no">Archief</span>
+    <div class="deck-media ${img ? '' : 'mono'}" style="--h:${hue(i.bron || i.type || i.titel || '')}">${img ? `<img src="${esc(img)}" alt="" referrerpolicy="no-referrer" draggable="false">` : `<span>${esc(letter)}</span>`}</div>
+    <div class="deck-body">
+      <div class="card-top"><span class="type">${esc(TYPE_LABEL[i.type] || i.type || 'Item')}</span><span class="src">${esc(i.bron || i.map)}</span><span>${relDate(i.opgeslagen)}</span><span class="score ${scoreClass(i.rank)}">${shown(i.rank)}</span></div>
+      <h3>${esc(i.titel)}</h3>
+      ${i.samenvatting ? `<p>${esc(i.samenvatting)}</p>` : ''}
+      <div class="tags"><span class="tag">${esc(i.map)}</span>${(i.tags || []).slice(0, 3).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
+    </div>
+  </article>`;
+}
+
+function sorteerView() {
+  if (!S.deck) startDeck();
+  const d = S.deck;
+  d.ids = d.ids.filter((id) => S.items.some((i) => i.id === id && i.status === 'nieuw'));
+  const rest = d.ids.filter((id) => !d.uitgesteld.has(id));
+  const klaar = d.totaal - rest.length;
+  const back = S.map ? `#/map/${encodeURIComponent(S.map)}` : '#/';
+  const head = `<div class="topbar"><button class="icon-btn" data-action="nav" data-href="${back}" aria-label="Terug">${icon('back')}</button>
+      <div style="flex:1;min-width:0"><span class="dateline">${klaar} van ${d.totaal} gesorteerd</span><h1>Snel sorteren</h1></div></div>
+    <div class="deck-progress" aria-hidden="true"><span style="width:${d.totaal ? (klaar / d.totaal) * 100 : 100}%"></span></div>`;
+  if (!rest.length) {
+    return `${head}<div class="deck-done">
+      <div class="check">${icon('check')}</div>
+      <h2>${d.totaal ? 'Alles gesorteerd' : 'Niets ongelezen'}</h2>
+      <p class="muted">${d.totaal ? `${d.ster} met ster, ${d.archief} gearchiveerd, ${d.later} voor later.` : 'Nieuwe links komen hier vanzelf.'}</p>
+      <div class="make-row" style="justify-content:center">
+        ${d.ster ? `<button class="btn primary" data-action="deck-stars">${icon('sparkle')}Maak content van je sterren</button>` : ''}
+        <button class="btn" data-action="nav" data-href="${back}">Naar je feed</button>
+      </div>
+    </div>`;
+  }
+  const cards = rest.slice(0, 3).map((id, n) => deckCard(S.items.find((i) => i.id === id), n)).reverse().join('');
+  return `${head}
+    <p class="small muted deck-hint">Veeg naar rechts voor een ster, naar links voor het archief. Tik om te lezen.<span class="desktop-only"> Of gebruik de pijltjes.</span></p>
+    <div class="deck">${cards}</div>
+    <div class="deck-buttons">
+      <button class="deck-btn no" data-action="deck" data-v="left">${icon('archive')}<span>Archief</span></button>
+      <button class="deck-btn later" data-action="deck" data-v="later">${icon('clock')}<span>Later</span></button>
+      <button class="deck-btn yes" data-action="deck" data-v="right">${icon('star')}<span>Ster</span></button>
+    </div>`;
+}
+
+async function deckAction(dir, id) {
+  const d = S.deck;
+  S.deckBusy = false;
+  if (!d || !id || !S.vault.has(id)) return render();
+  if (dir === 'tap') return go(`#/item/${encodeURIComponent(id)}`);
+  const meta = S.vault.meta(id);
+  d.geschiedenis.push({ id, dir, prev: { ster: meta.ster, status: meta.status } });
+  if (dir === 'right') {
+    d.ster += 1;
+    await patchItem(id, { ster: true, status: 'gelezen' });
+  } else if (dir === 'left') {
+    d.archief += 1;
+    await patchItem(id, { status: 'archief' });
+  } else {
+    d.later += 1;
+    d.uitgesteld.add(id);
+  }
+  render();
+  if (!d.ids.some((x) => !d.uitgesteld.has(x)) && d.totaal) burst($('.deck-done .check'), ['#ffe25c', '#e0492a', '#2f8a57']);
+  toast({ right: 'Ster gegeven', left: 'Gearchiveerd', later: 'Voor later' }[dir], { actie: undoDeck, duur: 4500 });
+}
+
+async function undoDeck() {
+  const d = S.deck;
+  const last = d?.geschiedenis.pop();
+  if (!last) return;
+  if (last.dir === 'right') d.ster -= 1;
+  if (last.dir === 'left') d.archief -= 1;
+  if (last.dir === 'later') {
+    d.later -= 1;
+    d.uitgesteld.delete(last.id);
+  } else {
+    const m = await patchItem(last.id, last.prev);
+    if (m && last.dir === 'left') S.vault.learner.signal(m, 'archief', -1);
+  }
+  d.ids = [last.id, ...d.ids.filter((x) => x !== last.id)];
+  render();
+}
+
+function swipeTop(dir) {
+  const card = $('.deck-card.top');
+  if (!card || S.deckBusy) return;
+  S.deckBusy = true;
+  flyOut(card, dir, () => deckAction(dir, card.dataset.id));
+}
+
+// ---------- setup checklist ----------
+function setupTasks() {
+  const c = S.cfg;
+  const manual = local.get('cm_checklist', {});
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const inbox = local.get('cm_inbox_seen', false);
+  const tasks = [{ id: 'vault', label: 'Vault gekoppeld', hint: c.modus === 'lokaal' ? 'Alleen op dit apparaat' : `${c.owner}/${c.repo}`, klaar: S.ready, auto: true }];
+  if (c.modus !== 'lokaal') {
+    tasks.push(
+      { id: 'beginscherm', label: 'Op je beginscherm', hint: 'Safari, Deel, Zet op beginscherm', klaar: standalone || Boolean(manual.beginscherm), auto: standalone },
+      { id: 'opdracht', label: 'Opdracht in je deelmenu', hint: 'Zie hieronder: iPhone, opslaan via de Deel-knop', klaar: inbox || Boolean(manual.opdracht), auto: inbox },
+      { id: 'obsidian', label: 'Obsidian op je Mac', hint: 'Zie hieronder: Obsidian op je Mac', klaar: Boolean(manual.obsidian), auto: false },
+    );
+  }
+  tasks.push(
+    { id: 'link', label: 'Eerste link bewaard', hint: 'Deel een link of tik op +', klaar: S.items.length > 0, auto: true },
+    { id: 'markering', label: 'Eerste markering', hint: 'Selecteer tekst in een artikel en tik op Markeer', klaar: S.items.some((i) => i.markeringen), auto: true },
+    { id: 'content', label: 'Eerste content gemaakt', hint: 'Kies bronnen en kopieer een prompt', klaar: S.vault.content.length > 0, auto: true },
+  );
+  return tasks;
+}
+
+function checklistHtml() {
+  const tasks = setupTasks();
+  const done = tasks.filter((t) => t.klaar).length;
+  return `<div class="panel checklist">
+    <div class="check-head">${ringHtml(done, tasks.length)}<div><b>${done === tasks.length ? 'Alles staat klaar' : 'Aan de slag'}</b><div class="small muted" id="check-count" aria-live="polite">${done} van ${tasks.length} klaar</div></div></div>
+    <ul>${tasks.map((t) => `<li><button type="button" role="checkbox" aria-checked="${t.klaar}" class="check-item" ${t.auto ? 'aria-disabled="true"' : `data-action="check" data-v="${t.id}"`}>
+      <span class="box">${checkSvg}</span><span class="txt"><span class="strike">${esc(t.label)}</span><small>${esc(t.hint)}</small></span></button></li>`).join('')}</ul>
+  </div>`;
+}
+
+const GEN_LABELS = { rust: 'Maak prompt', bezig: 'Prompt maken...', klaar: 'Klaar' };
+
 function studioView() {
   const picked = [...S.selected].map((id) => S.items.find((i) => i.id === id)).filter(Boolean);
   return `<div class="topbar"><div style="flex:1"><span class="dateline">Prompt-generator</span><h1>Studio</h1></div></div>
@@ -907,7 +1048,7 @@ function studioView() {
     </div>
     <div class="field"><label for="instructie">Extra instructie ${S.soort === 'vrij' ? '' : '(optioneel)'}</label>
       <textarea id="instructie" rows="3" placeholder="Bijv.: schrijf voor HR-managers, of: focus op de kosten voor het mkb">${esc(S.instructie)}</textarea></div>
-    <button class="btn primary block" data-action="build-prompt" ${picked.length ? '' : 'disabled'}>${icon('sparkle')}Maak prompt</button>
+    <button class="gen block ${S.gen || ''}" data-action="build-prompt" ${picked.length ? '' : 'disabled'}><span class="gen-ring" aria-hidden="true"></span><span class="gen-inner">${S.gen === 'klaar' ? icon('check') : icon('sparkle')}<span class="gen-text">${GEN_LABELS[S.gen || 'rust']}</span></span></button>
     ${S.prompt ? `<div class="panel result">
       <div class="row" style="justify-content:space-between;flex-wrap:wrap"><h3>Je prompt</h3><span class="small muted">${S.prompt.length.toLocaleString('nl-NL')} tekens</span></div>
       <div class="make-row" style="margin:6px 0 12px">
@@ -1003,6 +1144,7 @@ function settingsView() {
   const trained = [...model.folders].map(([n, f]) => `${esc(n)} (${f.docs})`).join(', ');
   const corrections = v.learner.state.correcties.slice(0, 5);
   return `<div class="topbar"><div style="flex:1"><span class="dateline">${c.modus === 'lokaal' ? 'Alleen dit apparaat' : `${esc(c.owner)}/${esc(c.repo)}`}</span><h1>Instellingen</h1></div></div>
+    ${checklistHtml()}
 
     ${c.modus === 'lokaal' ? '' : `<div class="panel">
       <h3>iPhone: opslaan via de Deel-knop</h3>
@@ -1072,11 +1214,12 @@ function settingsView() {
 
     <div class="panel">
       <h3>Inhoud ophalen en AI</h3>
-      <label class="row small" style="margin:6px 0"><input type="checkbox" id="cfg-previews" style="width:auto" ${c.previews !== false ? 'checked' : ''}> Voorbeeldplaatjes en paginagegevens via microlink.io (gratis, 50 per dag; die dienst ziet de link). Plaatjes van X en YouTube werken ook zonder.</label>
-      <label class="row small" style="margin:6px 0"><input type="checkbox" id="cfg-reader" style="width:auto" ${c.reader ? 'checked' : ''}> Volledige tekst van artikelen via r.jina.ai (gratis, zonder account; die dienst ziet de link)</label>
-      <label class="row small" style="margin:6px 0"><input type="checkbox" id="cfg-haiku" style="width:auto" ${c.haiku ? 'checked' : ''}> Slimmer ordenen en samenvatten met Claude Haiku (optioneel, eigen API-sleutel, ongeveer 0,1 cent per item)</label>
-      ${c.haiku ? `<div class="field"><label for="cfg-key">Anthropic API-sleutel</label><input id="cfg-key" type="password" value="${esc(c.anthropicKey)}" autocomplete="off" placeholder="sk-ant-..."><p class="small muted">Blijft op dit apparaat en gaat alleen naar api.anthropic.com.</p></div>` : ''}
-      <button class="btn" data-action="save-options">Bewaar</button>
+      <div class="switches">
+        ${switchHtml({ key: 'previews', aan: c.previews !== false, label: 'Voorbeeldplaatjes', uitleg: 'Via microlink.io, gratis, 50 per dag; die dienst ziet de link. X en YouTube werken ook zonder.' })}
+        ${switchHtml({ key: 'reader', aan: c.reader, label: 'Volledige tekst van artikelen', uitleg: 'Via r.jina.ai, gratis en zonder account; die dienst ziet de link.' })}
+        ${switchHtml({ key: 'haiku', aan: c.haiku, label: 'Slimmer ordenen met Claude Haiku', uitleg: 'Optioneel, eigen API-sleutel, ongeveer 0,1 cent per item.' })}
+      </div>
+      ${c.haiku ? `<div class="field"><label for="cfg-key">Anthropic API-sleutel</label><input id="cfg-key" type="password" value="${esc(c.anthropicKey)}" autocomplete="off" placeholder="sk-ant-..."><p class="small muted">Blijft op dit apparaat en gaat alleen naar api.anthropic.com. Wordt bewaard zodra je het veld verlaat.</p></div>` : ''}
     </div>
 
     <details class="panel"><summary><b>Verbinding</b></summary>${connectForm()}</details>
@@ -1126,7 +1269,7 @@ function tabbarHtml() {
   const fromStudio = S.view === 'item' && S.itemFrom === 'concept';
   const fromArchive = S.view === 'item' && S.itemFrom === 'archief';
   return `<nav class="tabbar">
-    ${tab('#/', 'feed', 'Feed', S.view === 'feed' || (S.view === 'item' && !S.map && !fromToday && !fromStudio && !fromArchive))}
+    ${tab('#/', 'feed', 'Feed', S.view === 'feed' || S.view === 'sorteren' || (S.view === 'item' && !S.map && !fromToday && !fromStudio && !fromArchive))}
     ${tab('#/vandaag', 'sun', 'Vandaag', S.view === 'vandaag' || fromToday, reviewWaiting())}
     ${tab('#/mappen', 'grid', 'Mappen', S.view === 'mappen' || S.view === 'map' || S.view === 'archief' || fromArchive)}
     ${tab('#/studio', 'pen', 'Studio', S.view === 'studio' || S.view === 'concept' || fromStudio, S.selected.size)}
@@ -1215,6 +1358,8 @@ function render() {
   else if (S.view === 'mappen') main = desktop ? feedView() : foldersView();
   else if (S.view === 'vandaag') main = vandaagView();
   else if (S.view === 'archief') main = archiefView();
+  else if (S.view === 'sorteren') main = sorteerView();
+  else if (S.view === 'item' && desktop && S.itemFrom === 'sorteren') main = sorteerView();
   else if (S.view === 'item' && desktop && S.itemFrom === 'archief') main = archiefView();
   else if (S.view === 'item' && !desktop) main = detailHtml();
   else if (S.view === 'item' && S.itemFrom === 'vandaag') main = vandaagView();
@@ -1249,6 +1394,16 @@ function render() {
     q?.setSelectionRange(q.value.length, q.value.length);
   }
   markReader();
+  afterRender();
+}
+
+// Rolling numbers roll from their last value; a tapped button springs.
+function afterRender() {
+  animateRolls();
+  if (S.pop) {
+    pop(document.querySelector(`[data-pop="${S.pop}"]`));
+    S.pop = null;
+  }
 }
 
 function renderList() {
@@ -1261,6 +1416,7 @@ function renderList() {
   if (bundles) bundles.innerHTML = bundleChipsHtml();
   const side = $('.sidebar');
   if (side) side.innerHTML = sidebarHtml();
+  animateRolls();
 }
 
 function renderDetail() {
@@ -1274,6 +1430,7 @@ function renderDetail() {
     if (main) main.innerHTML = detailHtml();
   }
   markReader();
+  afterRender();
 }
 
 function renderSync() {
@@ -1426,6 +1583,15 @@ function fillProduction(p, text) {
     conceptBody({ titel, label: p.label, links: metas.map(noteLink), onderwerpen: p.onderwerpen, resultaat: text, datum: p.datum }),
   );
   v.saveContent(v.content.map((x) => (x.file === p.file ? { ...x, titel, klaar: true } : x)));
+}
+
+function undoCurrentProduction() {
+  const p = productionByFile(S.productie?.file);
+  if (!p) return;
+  undoProduction(p).then(() => {
+    toast('Uit je content-archief gehaald, de bronnen staan weer in je feed');
+    render();
+  });
 }
 
 // Undo: the note goes, the sources return to where they were.
@@ -1664,17 +1830,32 @@ const actions = {
       toast(e.message);
     }
   },
-  star: () => patchItem(S.detail.id, { ster: !S.detail.ster }),
+  star: (el) => {
+    if (!S.detail.ster) {
+      burst(el);
+      S.pop = 'star';
+    }
+    patchItem(S.detail.id, { ster: !S.detail.ster });
+  },
   vote: (el) => {
     const val = Number(el.dataset.v);
+    if (S.detail.oordeel !== val) {
+      if (val === 1) burst(el, ['#2f8a57', '#ffe25c']);
+      S.pop = `vote${val}`;
+    }
     patchItem(S.detail.id, { oordeel: S.detail.oordeel === val ? 0 : val });
   },
   archive: () => {
-    const to = S.detail.status === 'archief' ? 'gelezen' : 'archief';
-    patchItem(S.detail.id, { status: to }).then((m) => m && toast(to === 'archief' ? 'Gearchiveerd' : 'Teruggezet'));
+    const id = S.detail.id;
+    const from = S.detail.status;
+    const to = from === 'archief' ? 'gelezen' : 'archief';
+    patchItem(id, { status: to }).then((m) => m && toast(to === 'archief' ? 'Gearchiveerd' : 'Teruggezet', {
+      actie: () => patchItem(id, { status: from }).then((back) => back && to === 'archief' && S.vault.learner.signal(back, 'archief', -1)),
+    }));
   },
   delete: async () => {
-    if (!confirm('Dit item verwijderen? Het bestand verdwijnt ook uit Obsidian.')) return;
+    const ok = await confirmSlide({ titel: 'Dit item verwijderen?', tekst: 'Het bestand verdwijnt ook uit Obsidian.', label: 'Schuif om te verwijderen', klaar: 'Verwijderd' });
+    if (!ok) return;
     try {
       const meta = S.vault.meta(S.detail.id);
       if (!meta.ster && meta.oordeel !== 1) S.vault.learner.signal(meta, 'verwijderd');
@@ -1698,20 +1879,34 @@ const actions = {
     S.prompt = '';
     render();
   },
-  'build-prompt': async () => {
+  'build-prompt': async (el) => {
+    if (S.gen) return;
     S.instructie = $('#instructie')?.value ?? S.instructie;
     if (S.soort === 'vrij' && !S.instructie.trim()) return toast('Schrijf eerst wat je wilt maken bij Extra instructie');
+    S.gen = 'bezig';
+    setGenerate(el, 'bezig', GEN_LABELS);
     try {
-      await buildCurrentPrompt();
+      // A short moment for the glow, so you see the prompt being made.
+      await Promise.all([buildCurrentPrompt(), new Promise((res) => setTimeout(res, 650))]);
+      S.gen = 'klaar';
       render();
       $('#prompt-text')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } catch (e) {
-      toast(e.message);
+      toast(e.message, { soort: 'fout' });
     }
+    setTimeout(() => {
+      S.gen = null;
+      const btn = $('.gen');
+      if (btn) {
+        setGenerate(btn, 'rust', GEN_LABELS);
+        btn.querySelector('svg')?.replaceWith(document.createRange().createContextualFragment(icon('sparkle')));
+      }
+    }, 1400);
   },
-  'copy-prompt': async () => {
+  'copy-prompt': async (el) => {
     const fresh = S.productie?.key !== productionKey();
-    await copy(S.prompt, fresh ? 'Gekopieerd. De bronnen staan nu in je content-archief' : 'Prompt gekopieerd, plak hem in je chat');
+    if (fresh) burst(el);
+    await copy(S.prompt, fresh ? 'Gekopieerd. De bronnen staan nu in je content-archief' : 'Prompt gekopieerd, plak hem in je chat', fresh ? { soort: 'ok', actie: undoCurrentProduction } : undefined);
     recordProduction().catch((e) => toast(e.message));
   },
   'open-chat': async (el) => {
@@ -1747,7 +1942,7 @@ const actions = {
   'undo-production': async (el) => {
     const p = productionByFile(el.dataset.v || S.concept?.file);
     if (!p) return;
-    if (S.view === 'concept' && !confirm('Uit je content-archief halen? De bronnen gaan terug naar je feed en de notitie in Concepten verdwijnt.')) return;
+    if (S.view === 'concept' && !(await confirmSlide({ titel: 'Uit je content-archief halen?', tekst: 'De bronnen gaan terug naar je feed en de notitie in Concepten verdwijnt.', label: 'Schuif om eruit te halen', klaar: 'Eruit gehaald' }))) return;
     await undoProduction(p);
     toast('Uit je content-archief gehaald, de bronnen staan weer in je feed');
     if (S.view === 'concept') go(S.conceptFrom === 'archief' ? '#/archief' : '#/studio');
@@ -1769,7 +1964,10 @@ const actions = {
     S.archiefSoort = el.dataset.v || null;
     render();
   },
-  unuse: () => patchItem(S.detail.id, { status: 'gelezen' }).then((m) => m && toast('Staat weer in je feed')),
+  unuse: () => {
+    const id = S.detail.id;
+    patchItem(id, { status: 'gelezen' }).then((m) => m && toast('Staat weer in je feed', { actie: () => patchItem(id, { status: 'gebruikt' }) }));
+  },
   'search-topic': (el) => {
     S.q = el.dataset.v;
     S.filter = 'actief';
@@ -1839,10 +2037,11 @@ const actions = {
     hideMarkBar();
     getSelection()?.removeAllRanges();
     if (parseHighlights(S.detail.body || '').some((h) => sameHighlight(h.tekst, tekst))) return toast('Stond al gemarkeerd');
+    burst(el, ['#ffe25c', '#f0dc7a']);
     const m = await editHighlights((list) => [...list, { tekst, notitie: notitie.trim() }]);
     if (m) {
       S.vault.learner.signal(m, 'markering');
-      toast('Gemarkeerd');
+      toast('Gemarkeerd', { soort: 'ok' });
     }
   },
   'hl-note': async (el) => {
@@ -1853,7 +2052,10 @@ const actions = {
   },
   'hl-remove': async (el) => {
     const n = Number(el.dataset.v);
-    if (await editHighlights((list) => list.filter((_, k) => k !== n))) toast('Markering weggehaald');
+    const removed = parseHighlights(S.detail.body || '')[n];
+    if (await editHighlights((list) => list.filter((_, k) => k !== n))) {
+      toast('Markering weggehaald', { actie: () => editHighlights((list) => [...list.slice(0, n), removed, ...list.slice(n)]) });
+    }
   },
   'review-make': async (el) => {
     S.selected = new Set([el.dataset.id]);
@@ -1930,14 +2132,31 @@ const actions = {
     S.vault.writeSystem(`${name}.md`, text);
     toast('Bewaard');
   },
-  'save-options': () => {
-    S.cfg.reader = $('#cfg-reader').checked;
-    S.cfg.previews = $('#cfg-previews').checked;
-    S.cfg.haiku = $('#cfg-haiku').checked;
-    if ($('#cfg-key')) S.cfg.anthropicKey = $('#cfg-key').value.trim();
+  deck: (el) => swipeTop(el.dataset.v),
+  'deck-stars': () => {
+    const ids = S.deck.geschiedenis.filter((h) => h.dir === 'right').map((h) => h.id).filter((id) => S.vault.has(id));
+    S.selected = new Set(ids);
+    S.prompt = '';
+    go('#/studio');
+  },
+  check: (el) => {
+    const manual = local.get('cm_checklist', {});
+    manual[el.dataset.v] = !manual[el.dataset.v];
+    local.set('cm_checklist', manual);
+    el.setAttribute('aria-checked', String(manual[el.dataset.v]));
+    if (manual[el.dataset.v]) pop(el.querySelector('.box'));
+    const tasks = setupTasks();
+    const done = tasks.filter((t) => t.klaar).length;
+    setRing($('.checklist .ring'), done, tasks.length);
+    $('#check-count').textContent = `${done} van ${tasks.length} klaar`;
+  },
+  // Settings switches save right away.
+  toggle: (el) => {
+    const key = el.dataset.v;
+    S.cfg[key] = flipSwitch(el);
     local.set('cm_config', S.cfg);
-    toast('Bewaard');
-    render();
+    toast(S.cfg[key] ? 'Aangezet' : 'Uitgezet', { soort: 'ok', duur: 1600 });
+    if (key === 'haiku') setTimeout(render, 260);
   },
   modus: (el) => {
     readConnectForm();
@@ -1966,15 +2185,15 @@ const actions = {
     else render();
   },
   'clear-pending': async () => {
-    if (!confirm('Wachtende wijzigingen op dit apparaat wissen? Wat al op GitHub staat, blijft gewoon staan.')) return;
+    if (!(await confirmSlide({ titel: 'Wachtende wijzigingen wissen?', tekst: 'Wat al op GitHub staat, blijft gewoon staan.', label: 'Schuif om te wissen', klaar: 'Gewist' }))) return;
     safeStorage.removeItem(pendingKey());
     S.fout = '';
     await connect();
     if (S.ready) go('#/');
     else render();
   },
-  disconnect: () => {
-    if (!confirm('Dit apparaat ontkoppelen? Je vault blijft gewoon staan; alleen de instellingen hier worden gewist.')) return;
+  disconnect: async () => {
+    if (!(await confirmSlide({ titel: 'Dit apparaat ontkoppelen?', tekst: 'Je vault blijft gewoon staan; alleen de instellingen hier worden gewist.', label: 'Schuif om te ontkoppelen', klaar: 'Ontkoppeld' }))) return;
     local.set('cm_config', null);
     S.cfg = { ...DEFAULT_CFG };
     S.vault = null;
@@ -2007,6 +2226,11 @@ document.addEventListener('click', (ev) => {
 let notesTimer;
 document.addEventListener('input', (ev) => {
   const t = ev.target;
+  if (t.id === 'add-input') {
+    // Grows with what you paste, like the prompt box on nina-ai.nl/ui.
+    t.style.height = 'auto';
+    t.style.height = `${Math.min(t.scrollHeight + 2, 260)}px`;
+  }
   if (t.id === 'q') {
     S.q = t.value;
     renderList();
@@ -2039,9 +2263,31 @@ document.addEventListener('change', async (ev) => {
     }
     const m = await patchItem(S.detail.id, { map });
     if (m) toast(`Verplaatst naar ${m.map}. De machine leert hiervan.`);
+  } else if (t.id === 'cfg-key') {
+    S.cfg.anthropicKey = t.value.trim();
+    local.set('cm_config', S.cfg);
+    toast('Sleutel bewaard', { soort: 'ok' });
   } else if (t.id === 'tags-input') {
     await patchItem(S.detail.id, { tags: t.value.split(/[,\s]+/).map((x) => x.trim().replace(/^#/, '')).filter(Boolean) });
     runAutoBundle();
+  }
+});
+
+// Keys: arrows in the quick sort, Cmd+Enter saves what you typed in the add sheet.
+document.addEventListener('keydown', (ev) => {
+  const typing = ev.target.closest?.('input, textarea, select, [contenteditable]');
+  if (ev.target.id === 'add-input' && ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) {
+    ev.preventDefault();
+    actions['save-add']();
+    return;
+  }
+  if (S.view !== 'sorteren' || typing || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  const dir = { ArrowRight: 'right', ArrowLeft: 'left', ArrowDown: 'later' }[ev.key];
+  if (dir) {
+    ev.preventDefault();
+    swipeTop(dir);
+  } else if (ev.key === 'Enter' && $('.deck-card.top')) {
+    go(`#/item/${encodeURIComponent($('.deck-card.top').dataset.id)}`);
   }
 });
 
@@ -2115,6 +2361,8 @@ async function boot() {
   if (prefs.sort && SORTS[prefs.sort]) S.sort = prefs.sort;
   S.wasDesktop = isDesktop();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  setupDeck((dir, id) => (dir === 'tap' ? go(`#/item/${encodeURIComponent(id)}`) : deckAction(dir, id)));
+  setupTilt();
   route();
   const sharing = S.view === 'deel' || new URLSearchParams(location.search).has('url') || new URLSearchParams(location.search).has('text');
   if (sharing) return handleShare();

@@ -139,6 +139,24 @@ Genegeerd: #nieuws
 
 In Obsidian klik je op een #hashtag in dat bestand om alle items met die hashtag te zien.
 
+## Snel en interactief
+
+De app gebruikt de interactieve elementen uit de [NinA UI-bibliotheek](https://www.nina-ai.nl/ui), nagebouwd zonder framework:
+
+| Element | Waar |
+| --- | --- |
+| Kaarten swipen | **Snel sorteren**: tik in de feed op "x ongelezen". Veeg naar rechts voor een ster, naar links voor het archief, of tik op Later. Op de Mac met de pijltjestoetsen. |
+| Meldingenstapel | Elke melding, met **Ongedaan maken** waar dat kan (archiveren, sorteren, content-archief, markering weghalen). Tik op de stapel om oudere meldingen te zien. |
+| Schuif om te bevestigen | Verwijderen, uit het content-archief halen en ontkoppelen. |
+| Like-knop | Ster en duim omhoog veren en spatten. |
+| Rolteller | De score en de tellers op de filters rollen naar hun nieuwe waarde. |
+| Genereer-knop | **Maak prompt** gloeit terwijl de prompt wordt gemaakt. |
+| Checklist | **Aan de slag** bovenaan Instellingen: wat al klaar is, vinkt zichzelf af. |
+| Vloeibare schakelaar | De opties onder Instellingen; omzetten bewaart meteen. |
+| Kantelkaart | De stapeltjes in het Content-archief kantelen mee met je muis. |
+
+Bij "beweging verminderen" in je iPhone- of Mac-instellingen staan de animaties uit.
+
 ## Premium-functies, gratis
 
 Apps als Raindrop, Instapaper, Matter en Readwise vragen 3 tot 13 dollar per maand voor deze drie. Hier zitten ze er gratis in.
@@ -257,6 +275,7 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | Bestand | Rol |
 | --- | --- |
 | `app.js` | de interface |
+| `ui.js` | interactieve elementen: meldingen, schuiven, swipen, rollen, schakelaars |
 | `lib/vault.js` | Markdown-vault, index, wijzigingen bundelen, conflicten |
 | `lib/store.js` | GitHub REST API (Git Data API) of lokale opslag |
 | `lib/pipeline.js` | van gedeelde link naar geordende notitie |
