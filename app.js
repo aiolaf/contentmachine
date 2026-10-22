@@ -66,7 +66,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '23 okt 2026, 00:30';
+const VERSIE = '23 okt 2026, 01:00';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
 const OBSIDIAN_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)';
 
@@ -687,7 +687,7 @@ function feedView() {
 
 function foldersView() {
   return `<div class="topbar"><div style="flex:1"><span class="dateline">${S.items.length} items</span><h1>Mappen</h1></div><button class="btn" data-action="new-folder">${icon('plus')}Nieuw</button></div>
-    <div class="list">${folderList().map((f) => `
+    <div class="list folders">${folderList().map((f) => `
       <div class="card" data-action="nav" data-href="#/map/${encodeURIComponent(f.naam)}">
         <div class="row">${icon(f.naam === 'Inbox' ? 'inbox' : 'folder')}<h3 style="margin:0;flex:1">${esc(f.naam)}</h3><span class="muted">${f.aantal}</span></div>
         ${bundlesFor(bundleModel(), f.naam).length ? `<div class="tags" style="margin-top:8px">${bundlesFor(bundleModel(), f.naam).map((b) => `<span class="tag">#${esc(b.naam)}</span>`).join('')}</div>` : ''}
@@ -907,7 +907,7 @@ function vandaagView() {
   const head = `<div class="topbar"><div style="flex:1"><span class="dateline">${esc(new Date().toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' }))}</span><h1>Vandaag</h1></div></div>
     <p class="muted">Elke dag komen een paar bewaarde items terug, met een van je markeringen. Zo zakt goed materiaal niet weg onder nieuwe links. Elke keer dat iets terugkomt, duurt het daarna twee keer zo lang.</p>`;
   if (!items.length) return `${head}<div class="empty"><h2>Niets om te herhalen</h2><p>Bewaar een paar links. Vanaf morgen komen ze hier terug.</p></div>`;
-  return `${head}<div class="list">${items.map((i) => reviewCard(i, day)).join('')}</div>
+  return `${head}<div class="list review-list">${items.map((i) => reviewCard(i, day)).join('')}</div>
     <button class="btn primary block" data-action="review-prompt" style="margin-top:14px">${icon('sparkle')}Maak een nieuwsbrief van deze mix</button>`;
 }
 
