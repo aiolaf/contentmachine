@@ -256,7 +256,7 @@ function heroHtml() {
   return `<section class="hero leeg">
     <div class="hero-icon">${ICON.sun}</div>
     <h2>Nog geen kaarten</h2>
-    <p>${S.config.demo ? 'De demo is klaar voor vandaag.' : 'Claude zet je kaarten elke ochtend om 06:45 klaar. Tik op Vernieuw of voeg zelf een taak toe.'}</p>
+    <p>${S.config.demo ? 'De demo is klaar voor vandaag.' : 'Claude zet je kaarten elke ochtend om 09:05 klaar; een paar minuten later staan ze hier. Tik op Vernieuw of voeg zelf een taak toe.'}</p>
     <button type="button" class="btn light" data-action="nieuw">${ICON.plus}Taak toevoegen</button>
   </section>`;
 }
@@ -489,7 +489,7 @@ function viewInstellingen() {
     </form>
     <section class="panel uitleg">
       <h2>Hoe de kaarten ontstaan</h2>
-      <p>Elke ochtend om 06:45 leest een Claude-routine je meetings (Wispr Flow), agenda, mail en Pipedrive. Hij zet voorstellen in <code>${esc(c.map || 'Taken')}/voorstellen/</code> en kijkt in <code>staat.json</code> wat je eerder koos, zodat hij leert wat je wegswipet.</p>
+      <p>Elke ochtend om 09:05 leest een Claude-routine je meetings (Wispr Flow), agenda, mail en Pipedrive. Hij zet voorstellen in <code>${esc(c.map || 'Taken')}/voorstellen/</code> en kijkt in <code>staat.json</code> wat je eerder koos, zodat hij leert wat je wegswipet.</p>
       <p>Eigen regels voor Claude, zoals "geen nieuwsbrieven" of "klant X altijd hoog", zet je in <code>${esc(c.map || 'Taken')}/voorkeuren.md</code>.</p>
       <h2>Punten</h2>
       <p>Taak gedaan: ${PUNTEN.taak}, plus ${PUNTEN.prio1} bij hoge en ${PUNTEN.prio2} bij normale prioriteit. Ochtendcheck en avondcheck: elk ${PUNTEN.ochtend}. Alles gedaan: ${PUNTEN.alles} bonus. Een taak die al twee dagen doorschuift en toch af komt: ${PUNTEN.eindelijk} extra. Elke subtaak: ${PUNTEN.sub}. Je reeks telt de dagen met een avondcheck; het weekend breekt hem niet.</p>
@@ -948,6 +948,14 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 addEventListener('online', () => S.sync?.dirty && S.sync.schrijf().catch(() => {}));
+
+// Open on the computer while Claude is still working: look for today's cards
+// every two minutes until they are there.
+setInterval(() => {
+  if (!S.sync || S.config.demo || document.visibilityState !== 'visible' || S.view !== 'home' || S.sheet) return;
+  if (voorstelVanVandaag() || new Date().getHours() >= 12) return;
+  vernieuw({ stil: true });
+}, 120_000);
 
 setupDeck(onDeck);
 

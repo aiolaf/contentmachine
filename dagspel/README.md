@@ -9,12 +9,12 @@ Je taken als een spel. Geen lijst met honderd regels, maar een stapel kaarten.
 - **Avondcheck**: veeg wat over is weg. Rechts is gedaan, links is morgen, omhoog laat je los. Daarna je score, je reeks en je level.
 
 ```
-06:45  Claude-routine ──► leest Wispr Flow, agenda, Gmail, Pipedrive (alleen lezen)
+09:05  Claude-routine ──► leest Wispr Flow, agenda, Gmail, Pipedrive (alleen lezen)
                      └──► schrijft contentmachine-vault/Taken/voorstellen/2026-10-23.json
 
-07:30  Dagspel op je iPhone ──► ochtendcheck: wel / niet / later
-                            └──► schrijft Taken/staat.json  (Claude leest die morgen terug
-                                                             en leert wat je wegswipet)
+09:15  Dagspel op Mac of iPhone ──► ochtendcheck: wel / niet / later
+                                 └──► schrijft Taken/staat.json  (Claude leest die morgen terug
+                                                                  en leert wat je wegswipet)
 19:00  avondcheck: gedaan / morgen / los ──► punten, reeks, level
 ```
 
@@ -33,7 +33,7 @@ Op je Mac werkt hetzelfde adres; in Safari kies je Archief, **Voeg toe aan Dock*
 
 ## De Claude-routine
 
-Elke ochtend om 06:45 start een Claude-routine (Routines op claude.ai/code) met de connectors Gmail, Google Calendar, Wispr Flow en Pipedrive. De volledige instructie staat in [ROUTINE.md](ROUTINE.md). Kort:
+Elke ochtend om 09:05 start een Claude-routine (Routines op claude.ai/code) met de connectors Gmail, Google Calendar, Wispr Flow en Pipedrive. De volledige instructie staat in [ROUTINE.md](ROUTINE.md). Kort:
 
 - Hij leest alleen. Hij stuurt geen mail en wijzigt niets in Pipedrive of je agenda.
 - Hij maakt 5 tot 15 kaarten: toezeggingen uit meetings, mails waar iemand op je wacht, Pipedrive-activiteiten en stilstaande deals, en voorbereiding van belangrijke afspraken.

@@ -1,6 +1,6 @@
 // App shell cache: opens instantly on the iPhone, refreshes in the background.
 // Only this app's own files are cached; GitHub always goes to the network.
-const CACHE = 'ds-v2';
+const CACHE = 'ds-v3';
 const SHELL = [
   './', 'index.html', 'app.js', 'ui.js', 'styles.css', 'manifest.webmanifest', 'icon.svg', 'apple-touch-icon.png',
   'fonts/outfit-latin-wght-normal.woff2', 'fonts/outfit-latin-ext-wght-normal.woff2',
