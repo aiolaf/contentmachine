@@ -39,6 +39,7 @@ Per taak:
 - `minuten`: realistische schatting, tussen 5 en 120.
 - `prio`: 1 bij een deadline vandaag of morgen, een toezegging aan een klant of prospect, of direct omzeteffect. 2 voor normaal werk. 3 voor nice-to-have.
 - `deadline`: YYYY-MM-DD, alleen als die bekend is.
+- `subtaken`: optioneel, een lijst van 2 tot 5 korte stappen (strings). Alleen als een taak duidelijk uit losse stappen bestaat, zoals het voorbereiden van een workshop.
 
 Gebruik `staat.json` zo:
 

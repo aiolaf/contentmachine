@@ -19,7 +19,7 @@ export const KEUZES = {
   avond: { right: 'gedaan', left: 'morgen', up: 'los' },
 };
 
-export const PUNTEN = { taak: 10, prio1: 10, prio2: 5, eindelijk: 5, ochtend: 5, avond: 5, alles: 20 };
+export const PUNTEN = { taak: 10, prio1: 10, prio2: 5, eindelijk: 5, sub: 2, ochtend: 5, avond: 5, alles: 20 };
 const PER_NIVEAU = 200;
 const NIVEAUS = ['Opstarter', 'Doener', 'Afvinker', 'Doorpakker', 'Machine', 'Topspeler', 'Legende'];
 const ARCHIEF_NA_DAGEN = 30;
@@ -99,7 +99,37 @@ export function schoon(raw) {
   if (wie) t.wie = wie;
   if (link) t.link = link;
   if (isDag(raw.deadline)) t.deadline = raw.deadline;
+  const sub = leesSub(raw.sub ?? raw.subtaken);
+  if (sub.length) t.sub = sub;
   return t;
+}
+
+// Subtasks: from Claude a list of strings ("subtaken"), in the state a list of
+// { id, titel, klaar, op } where op is the day it was ticked off.
+function leesSub(lijst) {
+  if (!Array.isArray(lijst)) return [];
+  const uit = [];
+  const ids = new Set();
+  for (const s of lijst.slice(0, 20)) {
+    const titel = str(typeof s === 'string' ? s : s?.titel, 100);
+    if (!titel) continue;
+    let id = s && typeof s === 'object' && /^[A-Za-z0-9]{1,12}$/.test(s.id) ? s.id : '';
+    if (!id || ids.has(id)) id = vrijSubId(ids);
+    ids.add(id);
+    const x = { id, titel };
+    if (s?.klaar) {
+      x.klaar = true;
+      if (isDag(s.op)) x.op = s.op;
+    }
+    uit.push(x);
+  }
+  return uit;
+}
+
+function vrijSubId(ids) {
+  let n = ids.size + 1;
+  while (ids.has(`s${n}`)) n++;
+  return `s${n}`;
 }
 
 // What Claude wrote for a day, cleaned up. Unknown or broken tasks are skipped.
@@ -263,6 +293,62 @@ export function pasAan(staat, id, wijziging, vandaag, nu = Date.now()) {
   t.t = nu;
 }
 
+// ---------- subtasks ----------
+export function subPunten(t, dag) {
+  return (t.sub || []).filter((x) => x.klaar && (!dag || x.op === dag)).length * PUNTEN.sub;
+}
+
+export function subToevoegen(staat, id, titel, nu = Date.now()) {
+  const t = staat.taken[id];
+  const tekst = str(titel, 100);
+  if (!t || !tekst) return null;
+  const sub = [...(t.sub || [])];
+  const x = { id: vrijSubId(new Set(sub.map((y) => y.id))), titel: tekst };
+  sub.push(x);
+  Object.assign(t, { sub, t: nu });
+  return x;
+}
+
+// Ticks a subtask off or back on. Returns true when it is now done.
+export function subVink(staat, id, subId, vandaag, nu = Date.now()) {
+  const t = staat.taken[id];
+  const x = t?.sub?.find((y) => y.id === subId);
+  if (!x) return false;
+  const klaar = !x.klaar;
+  t.sub = t.sub.map((y) => (y.id !== subId ? y : klaar ? { ...y, klaar: true, op: vandaag } : { id: y.id, titel: y.titel }));
+  t.t = nu;
+  return klaar;
+}
+
+export function subWeg(staat, id, subId, nu = Date.now()) {
+  const t = staat.taken[id];
+  if (!t?.sub) return;
+  t.sub = t.sub.filter((y) => y.id !== subId);
+  if (!t.sub.length) delete t.sub;
+  t.t = nu;
+}
+
+// ---------- archive of finished tasks ----------
+// Everything ticked off, newest day first: today's from the list, older ones
+// from the state and the compact archive.
+export function gedaanPerDag(staat) {
+  const dagen = new Map();
+  const voeg = (dag, x) => {
+    if (!isDag(dag)) return;
+    if (!dagen.has(dag)) dagen.set(dag, { dag, taken: [], punten: 0 });
+    const d = dagen.get(dag);
+    d.taken.push(x);
+    d.punten += x.punten;
+  };
+  for (const t of Object.values(staat.taken)) {
+    if (t.status === 'gedaan') voeg(t.gedaanOp, { id: t.id, titel: t.titel, bron: t.bron, punten: (t.punten || 0) + subPunten(t), sub: t.sub?.length || 0 });
+  }
+  for (const [id, a] of Object.entries(staat.archief)) {
+    if (a.s === 'gedaan' && a.n) voeg(a.d, { id, titel: a.n, bron: Object.hasOwn(BRONNEN, a.b) ? a.b : 'overig', punten: a.p || 0, sub: 0 });
+  }
+  return [...dagen.values()].sort((a, b) => (a.dag < b.dag ? 1 : -1));
+}
+
 export function markeerDag(staat, vandaag, veld, extra = {}, nu = Date.now()) {
   const d = { ...(staat.dagen[vandaag] || {}) };
   if (!d[veld]) d[veld] = new Date(nu).toISOString();
@@ -273,7 +359,7 @@ export function markeerDag(staat, vandaag, veld, extra = {}, nu = Date.now()) {
 // ---------- score ----------
 export function totaalPunten(staat) {
   let p = 0;
-  for (const t of Object.values(staat.taken)) if (t.status === 'gedaan') p += t.punten || 0;
+  for (const t of Object.values(staat.taken)) p += (t.status === 'gedaan' ? t.punten || 0 : 0) + subPunten(t);
   for (const a of Object.values(staat.archief)) p += a.p || 0;
   for (const d of Object.values(staat.dagen)) p += (d.ochtend ? PUNTEN.ochtend : 0) + (d.avond ? PUNTEN.avond : 0) + (d.bonus || 0);
   return p;
@@ -281,7 +367,7 @@ export function totaalPunten(staat) {
 
 export function puntenVanDag(staat, dag) {
   let p = 0;
-  for (const t of Object.values(staat.taken)) if (t.status === 'gedaan' && t.gedaanOp === dag) p += t.punten || 0;
+  for (const t of Object.values(staat.taken)) p += (t.status === 'gedaan' && t.gedaanOp === dag ? t.punten || 0 : 0) + subPunten(t, dag);
   const d = staat.dagen[dag] || {};
   return p + (d.ochtend ? PUNTEN.ochtend : 0) + (d.avond ? PUNTEN.avond : 0) + (d.bonus || 0);
 }
@@ -314,7 +400,13 @@ export function ruimOp(staat, nu = Date.now()) {
   const grens = nu - ARCHIEF_NA_DAGEN * 864e5;
   for (const [id, t] of Object.entries(staat.taken)) {
     if ((t.status === 'gedaan' || t.status === 'weg') && (t.t || 0) < grens) {
-      staat.archief[id] = { s: t.status, d: t.gedaanOp || t.beslist || t.dag || '', ...(t.punten ? { p: t.punten } : {}) };
+      const p = (t.punten || 0) + subPunten(t);
+      staat.archief[id] = {
+        s: t.status,
+        d: t.gedaanOp || t.beslist || t.dag || '',
+        ...(p ? { p } : {}),
+        ...(t.status === 'gedaan' ? { n: t.titel, b: t.bron } : {}),
+      };
       delete staat.taken[id];
     }
   }

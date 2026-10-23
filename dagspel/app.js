@@ -4,7 +4,7 @@
 // own private repo; Claude writes the proposals next to it every morning.
 import {
   BRONNEN, KEUZES, PUNTEN, dagVan, plusDagen, ochtendStapel, avondStapel, vandaagLijst, laterLijst, kies, eigenTaak,
-  pasAan, markeerDag, totaalPunten, puntenVanDag, reeks, niveau, minutenVan,
+  pasAan, markeerDag, totaalPunten, puntenVanDag, reeks, niveau, minutenVan, subToevoegen, subVink, subWeg, gedaanPerDag,
 } from './lib/core.js';
 import { GitHubStore, LocalStore, parseRepoInput, cleanToken } from './lib/store.js';
 import { Sync } from './lib/sync.js';
@@ -40,6 +40,8 @@ const ICON = {
   moon: svg('<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/>'),
   trophy: svg('<path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5.5a3 3 0 0 0 3 4.5M16 6h2.5a3 3 0 0 1-3 4.5M12 13v4M8.5 20.5h7M10 17h4"/>'),
   top: svg('<path d="M12 19V6M6 11l6-6 6 6M5 3h14"/>'),
+  archief: svg('<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>'),
+  sub: svg('<path d="M6 4v9a3 3 0 0 0 3 3h9M14 12l4 4-4 4"/>'),
   trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>'),
 };
 
@@ -132,14 +134,30 @@ function budgetHtml(lijst) {
   </div>`;
 }
 
+function subTeller(t) {
+  if (!t.sub?.length) return '';
+  return `<span class="sub-count">${ICON.sub}${t.sub.filter((x) => x.klaar).length}/${t.sub.length}</span>`;
+}
+
+function subVinkHtml(t, x) {
+  return `<button type="button" class="sub-check" data-action="sub-vink" data-id="${esc(t.id)}" data-sub="${esc(x.id)}" aria-pressed="${Boolean(x.klaar)}" aria-label="${x.klaar ? 'Niet af' : 'Af'}: ${esc(x.titel)}">${ICON.check}</button>`;
+}
+
+// Subtasks of an open task, right under it in the list, to tick off on the spot.
+function subsInRijHtml(t) {
+  if (!t.sub?.length || t.status === 'gedaan') return '';
+  return `<ul class="subs">${t.sub.map((x) => `<li class="sub${x.klaar ? ' klaar' : ''}">${subVinkHtml(t, x)}<span>${esc(x.titel)}</span></li>`).join('')}</ul>`;
+}
+
 function rijHtml(t, { vink = true } = {}) {
   const klaar = t.status === 'gedaan';
   return `<li class="row${klaar ? ' done' : ''}" data-id="${esc(t.id)}">
     ${vink ? `<button type="button" class="check" data-action="vink" data-id="${esc(t.id)}" aria-pressed="${klaar}" aria-label="${klaar ? 'Niet gedaan' : 'Gedaan'}: ${esc(t.titel)}">${ICON.check}</button>` : `<span class="row-src src-${t.bron}">${ICON[t.bron] || ICON.overig}</span>`}
     <button type="button" class="row-main" data-action="bewerk" data-id="${esc(t.id)}">
       <span class="row-title"><span>${esc(t.titel)}</span></span>
-      <span class="row-meta"><i class="dot src-${t.bron}"></i>${esc(BRONNEN[t.bron])}<span>${fmtMin(t.minuten)}</span>${prioHtml(t)}${deadlineBadge(t)}</span>
+      <span class="row-meta"><i class="dot src-${t.bron}"></i>${esc(BRONNEN[t.bron])}<span>${fmtMin(t.minuten)}</span>${subTeller(t)}${prioHtml(t)}${deadlineBadge(t)}</span>
     </button>
+    ${vink ? subsInRijHtml(t) : ''}
   </li>`;
 }
 
@@ -161,11 +179,24 @@ function renderStatus() {
 
 // ---------- views ----------
 function render() {
-  const views = { welkom: viewWelkom, home: viewHome, spel: viewSpel, plan: viewPlan, klaar: viewKlaar, later: viewLater, instellingen: viewInstellingen };
+  renderView();
+  renderSheet();
+}
+
+function renderView() {
+  const views = { welkom: viewWelkom, home: viewHome, spel: viewSpel, plan: viewPlan, klaar: viewKlaar, later: viewLater, archief: viewArchief, instellingen: viewInstellingen };
   app.innerHTML = (views[S.view] || viewHome)();
   app.dataset.view = S.view;
-  renderSheet();
   animateRolls(app);
+}
+
+// After a subtask change: the screen behind and the open sheet, without
+// losing what is typed in the sheet.
+function ververs() {
+  renderView();
+  const t = S.sheet?.type === 'bewerk' && staat().taken[S.sheet.id];
+  const lijst = document.getElementById('sheet-subs');
+  if (t && lijst) lijst.innerHTML = sheetSubsHtml(t);
 }
 
 function viewWelkom() {
@@ -244,6 +275,7 @@ function viewHome() {
   const lijst = vandaagLijst(s, vandaag()).sort((a, b) => (a.status === 'gedaan') - (b.status === 'gedaan'));
   const later = laterLijst(s);
   const gedaan = lijst.filter((t) => t.status === 'gedaan').length;
+  const afgevinkt = gedaanPerDag(s).reduce((n, d) => n + d.taken.length, 0);
   return `<main class="home">
     <header class="top">
       <div><p class="datum">${datumTekst()}</p><h1>${groet()}, ${esc(S.config.naam || 'Olaf')}</h1></div>
@@ -258,7 +290,10 @@ function viewHome() {
       <button type="button" class="add" data-action="nieuw">${ICON.plus}Taak toevoegen</button>
     </section>
     ${agendaHtml()}
-    ${later.length ? `<button type="button" class="later-link" data-action="naar-later">${ICON.later}<span>Later</span><b>${later.length}</b></button>` : ''}
+    <div class="links">
+      <button type="button" class="later-link" data-action="naar-later">${ICON.later}<span>Later</span><b>${later.length}</b></button>
+      <button type="button" class="later-link" data-action="naar-archief">${ICON.archief}<span>Archief</span><b>${afgevinkt}</b></button>
+    </div>
     ${syncHtml()}
   </main>`;
 }
@@ -272,8 +307,9 @@ function kaartHtml(k, i, soort) {
     <h3>${esc(k.titel)}</h3>
     ${k.wie ? `<p class="wie">${esc(k.wie)}</p>` : ''}
     ${k.context ? `<p class="ctx">${esc(k.context)}</p>` : ''}
+    ${k.sub?.length ? `<ul class="card-subs">${k.sub.slice(0, 4).map((x) => `<li class="${x.klaar ? 'klaar' : ''}">${esc(x.titel)}</li>`).join('')}${k.sub.length > 4 ? `<li class="meer">en nog ${k.sub.length - 4}</li>` : ''}</ul>` : ''}
     <div class="card-foot">
-      <div class="card-meta"><span class="meta-min">${ICON.later}${fmtMin(k.minuten)}</span>${prioHtml(k)}${deadlineBadge(k)}</div>
+      <div class="card-meta"><span class="meta-min">${ICON.later}${fmtMin(k.minuten)}</span>${subTeller(k)}${prioHtml(k)}${deadlineBadge(k)}</div>
       ${k.link ? `<a class="card-link" href="${esc(k.link)}" target="_blank" rel="noopener">${ICON.link}${LINKLABEL[k.bron] || 'Open bron'}</a>` : ''}
     </div>
   </article>`;
@@ -395,6 +431,36 @@ function viewLater() {
   </main>`;
 }
 
+function dagLabel(dag) {
+  const v = vandaag();
+  if (dag === v) return 'Vandaag';
+  if (dag === plusDagen(v, -1)) return 'Gisteren';
+  const [y, m, d] = dag.split('-').map(Number);
+  const opties = { weekday: 'long', day: 'numeric', month: 'long', ...(String(y) !== v.slice(0, 4) ? { year: 'numeric' } : {}) };
+  return hoofdletter(new Intl.DateTimeFormat('nl-NL', opties).format(new Date(y, m - 1, d, 12)));
+}
+
+function viewArchief() {
+  const dagen = gedaanPerDag(staat()).slice(0, 90);
+  const totaal = dagen.reduce((n, d) => n + d.taken.length, 0);
+  return `<main class="archief-view">
+    <header class="spel-top">
+      <button type="button" class="icon-btn" data-action="home" aria-label="Terug">${ICON.back}</button>
+      <div class="spel-titel"><b>Archief</b><span>${meervoud(totaal, 'taak', 'taken')} afgevinkt</span></div>
+      <span class="icon-btn spacer"></span>
+    </header>
+    <p class="muted plan-uitleg">Afgevinkte taken blijven tot het eind van de dag op je lijst. Daarna staan ze hier, per dag.</p>
+    ${dagen.length ? dagen.map((d) => `<section class="panel dag-groep">
+      <div class="panel-head"><h2>${dagLabel(d.dag)}</h2><span class="muted small">${meervoud(d.taken.length, 'taak', 'taken')}<b class="pts">+${d.punten}</b></span></div>
+      <ul class="list">${d.taken.map((t) => `<li class="row done">
+        <span class="check" aria-hidden="true">${ICON.check}</span>
+        <div class="row-main static"><span class="row-title"><span>${esc(t.titel)}</span></span>
+          <span class="row-meta"><i class="dot src-${t.bron}"></i>${esc(BRONNEN[t.bron])}${t.sub ? `<span>${meervoud(t.sub, 'subtaak', 'subtaken')}</span>` : ''}<b class="pts">+${t.punten}</b></span></div>
+      </li>`).join('')}</ul>
+    </section>`).join('') : '<section class="panel"><p class="muted small leeg-tekst">Nog niets afgevinkt. Je eerste taak komt hier te staan.</p></section>'}
+  </main>`;
+}
+
 function viewInstellingen() {
   const c = S.config;
   const verbonden = S.sync && !c.demo;
@@ -426,7 +492,7 @@ function viewInstellingen() {
       <p>Elke ochtend om 06:45 leest een Claude-routine je meetings (Wispr Flow), agenda, mail en Pipedrive. Hij zet voorstellen in <code>${esc(c.map || 'Taken')}/voorstellen/</code> en kijkt in <code>staat.json</code> wat je eerder koos, zodat hij leert wat je wegswipet.</p>
       <p>Eigen regels voor Claude, zoals "geen nieuwsbrieven" of "klant X altijd hoog", zet je in <code>${esc(c.map || 'Taken')}/voorkeuren.md</code>.</p>
       <h2>Punten</h2>
-      <p>Taak gedaan: ${PUNTEN.taak}, plus ${PUNTEN.prio1} bij hoge en ${PUNTEN.prio2} bij normale prioriteit. Ochtendcheck en avondcheck: elk ${PUNTEN.ochtend}. Alles gedaan: ${PUNTEN.alles} bonus. Een taak die al twee dagen doorschuift en toch af komt: ${PUNTEN.eindelijk} extra. Je reeks telt de dagen met een avondcheck; het weekend breekt hem niet.</p>
+      <p>Taak gedaan: ${PUNTEN.taak}, plus ${PUNTEN.prio1} bij hoge en ${PUNTEN.prio2} bij normale prioriteit. Ochtendcheck en avondcheck: elk ${PUNTEN.ochtend}. Alles gedaan: ${PUNTEN.alles} bonus. Een taak die al twee dagen doorschuift en toch af komt: ${PUNTEN.eindelijk} extra. Elke subtaak: ${PUNTEN.sub}. Je reeks telt de dagen met een avondcheck; het weekend breekt hem niet.</p>
     </section>
     ${S.sync ? syncHtml() : ''}
   </main>`;
@@ -440,6 +506,11 @@ function chipsHtml(huidig) {
 
 function prioKeuzeHtml(huidig) {
   return `<div class="seg">${[1, 2, 3].map((p) => `<label><input type="radio" name="prio" value="${p}"${p === huidig ? ' checked' : ''}><span>${PRIO[p]}</span></label>`).join('')}</div>`;
+}
+
+function sheetSubsHtml(t) {
+  return (t.sub || []).map((x) => `<li class="sub${x.klaar ? ' klaar' : ''}">${subVinkHtml(t, x)}<span>${esc(x.titel)}</span>
+    <button type="button" class="sub-weg" data-action="sub-weg" data-id="${esc(t.id)}" data-sub="${esc(x.id)}" aria-label="Verwijder subtaak: ${esc(x.titel)}">${ICON.x}</button></li>`).join('');
 }
 
 function renderSheet() {
@@ -475,6 +546,14 @@ function renderSheet() {
       ${t.link ? `<a class="card-link" href="${esc(t.link)}" target="_blank" rel="noopener">${ICON.link}${LINKLABEL[t.bron] || 'Open bron'}</a>` : ''}
       <div class="field"><span>Tijd</span>${chipsHtml(t.minuten)}</div>
       <div class="field"><span>Prioriteit</span>${prioKeuzeHtml(t.prio)}</div>
+      <div class="field"><span>Subtaken</span>
+        <ul class="sheet-subs" id="sheet-subs">${sheetSubsHtml(t)}</ul>
+        <div class="sub-add">
+          <label class="sr-only" for="sub-nieuw">Subtaak</label>
+          <input id="sub-nieuw" placeholder="Subtaak toevoegen" maxlength="100" enterkeyhint="enter" autocomplete="off">
+          <button type="button" class="mini-btn" data-action="sub-nieuw" data-id="${esc(t.id)}" aria-label="Subtaak toevoegen">${ICON.plus}</button>
+        </div>
+      </div>
       <div class="sheet-acts">
         <button type="button" class="mini-btn" data-action="bovenaan" data-id="${esc(t.id)}">${ICON.top}Bovenaan</button>
         <button type="button" class="mini-btn" data-action="naar-later-taak" data-id="${esc(t.id)}">${ICON.later}Later</button>
@@ -606,6 +685,33 @@ function vink(id, knop) {
     });
     checkNiveau(voor);
   }, 420);
+}
+
+function vinkSub(el) {
+  const { id, sub } = el.dataset;
+  const voor = niveau(totaalPunten(staat())).nummer;
+  const klaar = subVink(staat(), id, sub, vandaag());
+  S.sync.wijzig();
+  if (klaar) {
+    floatPoints(el, `+${PUNTEN.sub}`);
+    burst(el, undefined, 6);
+  }
+  ververs();
+  const t = staat().taken[id];
+  if (klaar && t?.status === 'vandaag' && t.sub.every((x) => x.klaar)) {
+    toast('Alle subtaken af', { soort: 'ok', label: 'Vink taak af', actie: () => vink(id, app.querySelector(`.check[data-id="${CSS.escape(id)}"]`)) });
+  }
+  checkNiveau(voor);
+}
+
+function nieuweSub(id) {
+  const input = document.getElementById('sub-nieuw');
+  if (!input?.value.trim()) return input?.focus();
+  if (!subToevoegen(staat(), id, input.value)) return;
+  S.sync.wijzig();
+  input.value = '';
+  ververs();
+  input.focus();
 }
 
 function laterNaarVandaag(id) {
@@ -766,6 +872,18 @@ const ACTIES = {
   'taak-weg': (el) => taakWeg(el.dataset.id, 'niet', 'Weggehaald'),
   'later-vandaag': (el) => laterNaarVandaag(el.dataset.id),
   'later-weg': (el) => taakWeg(el.dataset.id, 'niet', 'Weggehaald'),
+  'naar-archief': () => {
+    S.view = 'archief';
+    render();
+    window.scrollTo(0, 0);
+  },
+  'sub-vink': vinkSub,
+  'sub-weg': (el) => {
+    subWeg(staat(), el.dataset.id, el.dataset.sub);
+    S.sync.wijzig();
+    ververs();
+  },
+  'sub-nieuw': (el) => nieuweSub(el.dataset.id),
 };
 
 document.addEventListener('click', (ev) => {
@@ -801,6 +919,10 @@ document.addEventListener('submit', (ev) => {
 });
 
 document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && ev.target.id === 'sub-nieuw' && !ev.isComposing) {
+    ev.preventDefault();
+    return nieuweSub(S.sheet?.id);
+  }
   if (ev.key === 'Escape' && S.sheet) {
     S.sheet = null;
     return renderSheet();
@@ -840,6 +962,15 @@ if (S.config.demo || S.config.token) {
   render();
 }
 
+// A new version installs in the background; once it takes over, reload so
+// the fix is there right away instead of on the next open. Not mid-swipe.
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let herladen = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || herladen || S.view === 'spel' || S.sheet) return;
+    herladen = true;
+    location.reload();
+  });
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }

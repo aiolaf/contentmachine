@@ -148,7 +148,7 @@ main { max-width: 520px; margin: 0 auto; padding: calc(var(--safe-top) + 16px) 1
 .budget.over .budget-bar span { background: linear-gradient(90deg, var(--warn), var(--bad)); }
 
 .list { list-style: none; margin: 0; padding: 0; }
-.row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; padding: 8px 0; border-top: 1px solid var(--border); }
 .row:first-child { border-top: 0; }
 .check { display: grid; place-items: center; width: 30px; height: 30px; flex: none; padding: 0; border: 2px solid var(--border); border-radius: 50%; background: none; color: transparent; cursor: pointer; transition: background .2s, border-color .2s, color .2s, transform .15s; }
 .check:active { transform: scale(.88); }
@@ -165,6 +165,27 @@ main { max-width: 520px; margin: 0 auto; padding: calc(var(--safe-top) + 16px) 1
 .row-src { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 10px; background: var(--muted-bg); color: var(--c, var(--muted)); }
 .row-src svg { width: 16px; height: 16px; }
 .row-acts { display: flex; gap: 6px; }
+.sub-count { display: inline-flex; align-items: center; gap: 3px; }
+.sub-count svg { width: 13px; height: 13px; }
+.subs { flex-basis: 100%; list-style: none; margin: 2px 0 2px 42px; padding: 0; }
+.sub { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 15px; }
+.sub > span { flex: 1; min-width: 0; }
+.sub.klaar > span { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--muted); }
+.sub-check { display: grid; place-items: center; width: 22px; height: 22px; flex: none; padding: 0; border: 2px solid var(--border); border-radius: 7px; background: none; color: transparent; cursor: pointer; transition: background .2s, border-color .2s, color .2s; }
+.sub-check svg { width: 12px; height: 12px; }
+.sub.klaar .sub-check { background: var(--good); border-color: var(--good); color: #0c0e18; }
+.sub-weg { display: grid; place-items: center; width: 30px; height: 30px; flex: none; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; }
+.sub-weg svg { width: 16px; height: 16px; }
+.sheet-subs { list-style: none; margin: 0; padding: 0; }
+.sheet-subs .sub { border-bottom: 1px solid var(--border); }
+.sub-add { display: flex; gap: 8px; }
+.sub-add input { flex: 1; padding: 9px 14px; border-radius: 999px; }
+.links { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.links .later-link { margin-bottom: 0; }
+.pts { margin-left: 8px; color: var(--gold); font-weight: 700; }
+.dag-groep .panel-head { margin-bottom: 4px; }
+.row-main.static .row-meta .pts { margin-left: auto; }
+.archief-view .row .check { cursor: default; }
 .add { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 6px; padding: 10px 0 2px; border: 0; border-top: 1px solid var(--border); background: none; color: var(--accent-2); font-size: 15px; font-weight: 600; cursor: pointer; }
 .add svg { width: 18px; height: 18px; }
 
@@ -231,6 +252,13 @@ main { max-width: 520px; margin: 0 auto; padding: calc(var(--safe-top) + 16px) 1
 .deck-card .wie { margin: 0; color: var(--accent-2); font-size: 15px; font-weight: 500; }
 .deck-card .ctx { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .card-foot { margin-top: auto; display: grid; gap: 12px; }
+.card-subs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.card-subs li { position: relative; padding-left: 20px; color: var(--text); font-size: 15px; }
+.card-subs li::before { content: ""; position: absolute; left: 2px; top: .45em; width: 10px; height: 10px; border: 2px solid var(--border); border-radius: 4px; }
+.card-subs li.klaar { color: var(--muted); text-decoration: line-through; }
+.card-subs li.klaar::before { background: var(--good); border-color: var(--good); }
+.card-subs li.meer { color: var(--muted); }
+.card-subs li.meer::before { display: none; }
 .card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .meta-min { display: inline-flex; align-items: center; gap: 5px; color: var(--text); font-size: 15px; font-weight: 600; }
 .meta-min svg { width: 17px; height: 17px; color: var(--muted); }
@@ -319,9 +347,10 @@ main { max-width: 520px; margin: 0 auto; padding: calc(var(--safe-top) + 16px) 1
 .toast-act { border: 0; background: none; padding: 2px 0 2px 6px; color: var(--accent-2); font-weight: 700; cursor: pointer; white-space: nowrap; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-14px) scale(.96); } }
 
-.roll { display: inline-flex; height: 1.15em; overflow: hidden; line-height: 1.15; vertical-align: bottom; }
-.roll-col { display: flex; flex-direction: column; }
-.roll-col span { height: 1.15em; }
+.roll { display: inline-flex; align-items: flex-start; height: 1.15em; overflow: hidden; line-height: 1.15; vertical-align: bottom; font-variant-numeric: tabular-nums; }
+/* flex-start keeps each column as tall as its ten digits, so a 10% shift is exactly one digit */
+.roll-col { flex: none; display: flex; flex-direction: column; }
+.roll-col span { display: block; height: 1.15em; }
 .burst { position: fixed; z-index: 70; width: 0; height: 0; pointer-events: none; }
 .burst i { position: absolute; left: 0; top: 0; width: 7px; height: 7px; border-radius: 50%; }
 .float-points { position: fixed; z-index: 70; color: var(--gold); font-size: 22px; font-weight: 800; text-shadow: 0 2px 12px rgba(0, 0, 0, .6); pointer-events: none; }

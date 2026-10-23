@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   legeStaat, leesStaat, leesVoorstel, schoon, ochtendStapel, avondStapel, vandaagLijst, laterLijst,
   kies, eigenTaak, pasAan, markeerDag, totaalPunten, puntenVanDag, reeks, niveau, ruimOp, voegSamen, plusDagen, isWeekend,
+  subToevoegen, subVink, subWeg, gedaanPerDag,
 } from '../lib/core.js';
 import { LocalStore, ConflictError, GitHubStore, utf8ToBase64, parseRepoInput, cleanToken } from '../lib/store.js';
 import { Sync } from '../lib/sync.js';
@@ -146,7 +147,7 @@ test('housekeeping: old finished tasks move to the archive and keep their points
   ruimOp(s);
   assert.equal(s.taken.a, undefined);
   assert.ok(s.taken.b);
-  assert.deepEqual(s.archief.a, { s: 'gedaan', d: '2026-09-01', p: 15 });
+  assert.deepEqual(s.archief.a, { s: 'gedaan', d: '2026-09-01', p: 15, n: 'A', b: 'overig' });
   assert.equal(totaalPunten(s), voor);
   // Claude proposes it again: it stays away
   assert.equal(ochtendStapel(s, voorstel([{ id: 'a', titel: 'A' }]), VANDAAG).length, 0);
@@ -256,4 +257,50 @@ test('demo: proposals for any day are valid', () => {
   assert.equal(v.datum, VANDAAG);
   assert.ok(v.taken.length >= 8);
   assert.ok(v.vrijeMinuten > 0);
+});
+
+test('subtasks: from Claude as strings, added by hand, ticked for points', () => {
+  const v = voorstel([{ id: 'w', titel: 'Bereid workshop voor', subtaken: ['Agenda maken', '  ', 'Slides', 'Slides'] }]);
+  assert.deepEqual(v.taken[0].sub, [{ id: 's1', titel: 'Agenda maken' }, { id: 's2', titel: 'Slides' }, { id: 's3', titel: 'Slides' }]);
+  const s = legeStaat();
+  kies(s, 'wel', ochtendStapel(s, v, VANDAAG)[0], VANDAAG);
+  assert.equal(s.taken.w.sub.length, 3);
+  subWeg(s, 'w', 's3');
+  const x = subToevoegen(s, 'w', 'Zaal checken');
+  assert.equal(x.id, 's3');
+  assert.equal(subVink(s, 'w', 's1', VANDAAG), true);
+  assert.equal(subVink(s, 'w', 's3', VANDAAG), true);
+  assert.equal(totaalPunten(s), 4);
+  assert.equal(puntenVanDag(s, VANDAAG), 4);
+  assert.equal(subVink(s, 'w', 's3', VANDAAG), false);
+  assert.equal(totaalPunten(s), 2);
+  // survives a round trip through the file
+  const terug = leesStaat(JSON.parse(JSON.stringify(s)));
+  assert.deepEqual(terug.taken.w.sub, [{ id: 's1', titel: 'Agenda maken', klaar: true, op: VANDAAG }, { id: 's2', titel: 'Slides' }, { id: 's3', titel: 'Zaal checken' }]);
+  // done and archived later: points stay
+  kies(s, 'gedaan', s.taken.w, VANDAAG);
+  const voor = totaalPunten(s);
+  s.taken.w.t = Date.now() - 40 * 864e5;
+  ruimOp(s);
+  assert.equal(totaalPunten(s), voor);
+  assert.deepEqual(s.archief.w, { s: 'gedaan', d: VANDAAG, p: voor, n: 'Bereid workshop voor', b: 'overig' });
+});
+
+test('archive: finished tasks per day, newest first, also from the compact archive', () => {
+  const s = legeStaat();
+  const a = eigenTaak(s, { titel: 'Vandaag af', prio: 1 }, VANDAAG);
+  kies(s, 'gedaan', a, VANDAAG);
+  const b = eigenTaak(s, { titel: 'Gisteren af' }, '2026-10-22');
+  kies(s, 'gedaan', b, '2026-10-22');
+  eigenTaak(s, { titel: 'Nog open' }, VANDAAG);
+  s.archief.oud = { s: 'gedaan', d: '2026-09-01', p: 15, n: 'Lang geleden', b: 'mail' };
+  s.archief.weg = { s: 'weg', d: '2026-09-02' };
+  const dagen = gedaanPerDag(s);
+  assert.deepEqual(dagen.map((d) => [d.dag, d.taken.map((t) => t.titel), d.punten]), [
+    [VANDAAG, ['Vandaag af'], 20],
+    ['2026-10-22', ['Gisteren af'], 15],
+    ['2026-09-01', ['Lang geleden'], 15],
+  ]);
+  // yesterday's finished task is gone from today's list
+  assert.deepEqual(vandaagLijst(s, VANDAAG).map((t) => t.titel), ['Vandaag af', 'Nog open']);
 });

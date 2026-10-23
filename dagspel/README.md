@@ -4,7 +4,8 @@ Je taken als een spel. Geen lijst met honderd regels, maar een stapel kaarten.
 
 - **Ochtendcheck**: Claude heeft je kaarten klaargezet uit je meetings (Wispr Flow), agenda, mail en Pipedrive. Veeg rechts voor wel, links voor niet, omhoog voor later. Een balk laat zien hoeveel van je vrije tijd je al hebt gevuld.
 - **Jouw dag**: daarna kleine aanpassingen. Tik op een taak voor tijd, prioriteit of tekst, of zet hem bovenaan.
-- **Overdag**: vink af in de lijst. Elke taak geeft punten.
+- **Overdag**: vink af in de lijst. Elke taak geeft punten. Hang subtaken aan een taak (tik op de taak) en vink die apart af.
+- **Archief**: afgevinkte taken blijven tot het eind van de dag op je lijst en staan daarna in het archief, per dag met je punten.
 - **Avondcheck**: veeg wat over is weg. Rechts is gedaan, links is morgen, omhoog laat je los. Daarna je score, je reeks en je level.
 
 ```
@@ -57,6 +58,7 @@ Pas je ROUTINE.md aan, werk dan ook de prompt van de routine bij (of vraag Claud
 | Taak gedaan | 10 |
 | Bonus bij prioriteit hoog / normaal | +10 / +5 |
 | Taak die al twee dagen doorschoof en toch af kwam | +5 |
+| Subtaak af | 2 |
 | Ochtendcheck, avondcheck | 5 per stuk |
 | Alles gedaan (niets naar morgen of losgelaten) | 20 |
 
@@ -87,9 +89,9 @@ Taken/
 }
 ```
 
-`bron` is `mail`, `agenda`, `meeting`, `pipedrive`, `monday` of `overig`. Het `id` blijft gelijk voor dezelfde zaak, zodat een kaart die je wegswipete niet terugkomt.
+`bron` is `mail`, `agenda`, `meeting`, `pipedrive`, `monday` of `overig`. Optioneel geeft Claude `subtaken` mee: een lijst korte stappen. Het `id` blijft gelijk voor dezelfde zaak, zodat een kaart die je wegswipete niet terugkomt.
 
-In `staat.json` heeft elke taak een `status`: `vandaag`, `gedaan`, `later`, `weg` of `open` (doorgeschoven). Taken die langer dan 30 dagen gedaan of weg zijn, gaan naar `archief` met alleen hun id, datum en punten.
+In `staat.json` heeft elke taak een `status`: `vandaag`, `gedaan`, `later`, `weg` of `open` (doorgeschoven). Een taak kan `sub` hebben: subtaken met `titel`, `klaar` en `op` (de dag van afvinken). Taken die langer dan 30 dagen gedaan of weg zijn, gaan naar `archief` met alleen hun id, datum en punten, en bij afgevinkte taken ook titel en bron, zodat ze in het archief zichtbaar blijven.
 
 Gebruik je de app op iPhone en Mac tegelijk, dan voegt hij de twee versies samen: per taak wint de laatste wijziging.
 
