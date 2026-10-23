@@ -1,0 +1,14 @@
+{
+  "name": "dagspel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NinA Dagspel: je taken als een spel. Swipe je dag bij elkaar in de ochtend, streep weg in de avond. Claude zet elke ochtend voorstellen klaar.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "python3 -m http.server 8080"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
