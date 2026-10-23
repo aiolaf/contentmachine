@@ -163,7 +163,7 @@ De app gebruikt de interactieve elementen uit de [NinA UI-bibliotheek](https://w
 
 | Element | Waar |
 | --- | --- |
-| Wegvegen | Veeg een kaart in de feed of een map opzij en hij gaat naar het archief, met **Ongedaan maken**. In het filter Archief zet wegvegen hem terug. |
+| Wegvegen | Veeg een kaart in de feed of een map **naar links** voor het archief, **naar rechts** voor een ster (nog een keer haalt de ster weg). Met **Ongedaan maken**. In het filter Archief zet naar links vegen een kaart terug. |
 | Kaarten swipen | **Snel sorteren**: tik in de feed op "x ongelezen". Veeg naar rechts voor een ster, naar links voor het archief, of tik op Later. Op de Mac met de pijltjestoetsen. |
 | Meldingenstapel | Elke melding, met **Ongedaan maken** waar dat kan (archiveren, sorteren, content-archief, markering weghalen). Tik op de stapel om oudere meldingen te zien. |
 | Schuif om te bevestigen | Verwijderen, uit het content-archief halen en ontkoppelen. |

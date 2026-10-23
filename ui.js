@@ -350,19 +350,26 @@ export function setupTilt() {
 
 // ---------- swipe a card away ----------
 // Like Mail: drag a card in a list sideways and an action shows behind it.
-// Past about a third of its width (or with a quick flick) it flies out and
-// folds away, then onSwipe(card, dir) runs. Vertical scrolling stays free:
-// the swipe only starts when the finger moves clearly sideways.
-export function setupSwipeAway({ selector, label = () => 'Archief', icon = '', onSwipe }) {
+// Past about a third of its width (or with a quick flick) the action counts.
+// actionFor(card, dir) returns { label, icon, fly }: a flying action takes the
+// card out of the list and folds the gap, the other springs back. Vertical
+// scrolling stays free: a swipe only starts when the finger moves clearly sideways.
+export function setupSwipeAway({ selector, actionFor, onSwipe }) {
   let s = null;
   let suppressClick = 0;
   const reset = () => {
     if (!s) return;
-    const { card, bg } = s;
-    card.classList.remove('swiping');
-    card.style.transform = '';
-    bg?.remove();
+    s.card.classList.remove('swiping');
+    s.card.style.transform = '';
+    s.bg?.remove();
     s = null;
+  };
+  const paintBg = (dir) => {
+    const a = actionFor(s.card, dir) || { label: '' };
+    s.bg.className = `swipe-bg ${dir} ${a.soort || ''}`;
+    s.bg.innerHTML = `<span class="swipe-label">${a.icon || ''}<span>${escHtml(a.label)}</span></span>`;
+    s.dir = dir;
+    s.action = a;
   };
   document.addEventListener('pointerdown', (ev) => {
     const card = ev.target.closest(selector);
@@ -378,13 +385,10 @@ export function setupSwipeAway({ selector, label = () => 'Archief', icon = '', o
       if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
       s.active = true;
       const { card } = s;
-      const list = card.parentElement;
       const bg = document.createElement('div');
-      bg.className = 'swipe-bg';
-      bg.innerHTML = `<span class="swipe-label">${icon}<span>${escHtml(label(card))}</span></span>`;
       bg.style.top = `${card.offsetTop}px`;
       bg.style.height = `${card.offsetHeight}px`;
-      list.insertBefore(bg, card);
+      card.parentElement.insertBefore(bg, card);
       s.bg = bg;
       s.width = card.offsetWidth;
       card.classList.add('swiping');
@@ -394,10 +398,11 @@ export function setupSwipeAway({ selector, label = () => 'Archief', icon = '', o
         // the pointer is gone already
       }
     }
+    const dir = dx < 0 ? 'left' : 'right';
+    if (dir !== s.dir) paintBg(dir);
     s.dx = dx;
     const p = Math.min(1, Math.abs(dx) / (s.width * 0.35));
     s.card.style.transform = `translateX(${dx}px) rotate(${dx / 60}deg)`;
-    s.bg.classList.toggle('left', dx < 0);
     s.bg.classList.toggle('armed', p >= 1);
     s.bg.style.setProperty('--p', String(p));
   });
@@ -407,36 +412,40 @@ export function setupSwipeAway({ selector, label = () => 'Archief', icon = '', o
       s = null;
       return;
     }
-    const { card, bg, dx, width, t0 } = s;
+    const { card, bg, dx, width, t0, dir, action } = s;
+    s = null;
     const fast = Math.abs(dx) / Math.max(1, performance.now() - t0) > 0.6 && Math.abs(dx) > 60;
     suppressClick = performance.now();
-    if ((Math.abs(dx) > width * 0.35 || fast) && card.isConnected) {
-      s = null;
-      const dir = dx < 0 ? 'left' : 'right';
-      card.classList.remove('swiping');
-      card.classList.add('swiped');
-      card.style.transform = `translateX(${dx < 0 ? -120 : 120}%) rotate(${dx < 0 ? -6 : 6}deg)`;
-      // Fold the gap closed, then hand over.
-      const h = card.offsetHeight;
-      card.style.height = `${h}px`;
-      setTimeout(() => {
-        card.style.height = '0px';
-        card.style.paddingTop = '0px';
-        card.style.paddingBottom = '0px';
-        card.style.marginBottom = `-${getComputedStyle(card.parentElement).rowGap || '0px'}`;
-        bg?.style.setProperty('height', '0px');
-      }, reduced() ? 0 : 180);
-      setTimeout(() => {
-        bg?.remove();
-        onSwipe(card, dir);
-      }, reduced() ? 0 : 420);
-    } else {
-      card.classList.remove('swiping');
+    card.classList.remove('swiping');
+    if (!((Math.abs(dx) > width * 0.35 || fast) && card.isConnected && action?.label)) {
       card.style.transform = '';
       bg?.classList.add('fade');
       setTimeout(() => bg?.remove(), 250);
-      s = null;
+      return;
     }
+    if (!action.fly) {
+      // Springs back with the action done, like flagging a mail.
+      card.style.transform = '';
+      bg?.classList.add('fade');
+      setTimeout(() => bg?.remove(), 250);
+      onSwipe(card, dir);
+      return;
+    }
+    card.classList.add('swiped');
+    card.style.transform = `translateX(${dx < 0 ? -120 : 120}%) rotate(${dx < 0 ? -6 : 6}deg)`;
+    // Fold the gap closed, then hand over.
+    card.style.height = `${card.offsetHeight}px`;
+    setTimeout(() => {
+      card.style.height = '0px';
+      card.style.paddingTop = '0px';
+      card.style.paddingBottom = '0px';
+      card.style.marginBottom = `-${getComputedStyle(card.parentElement).rowGap || '0px'}`;
+      bg?.style.setProperty('height', '0px');
+    }, reduced() ? 0 : 180);
+    setTimeout(() => {
+      bg?.remove();
+      onSwipe(card, dir);
+    }, reduced() ? 0 : 420);
   };
   document.addEventListener('pointerup', release);
   document.addEventListener('pointercancel', (ev) => {

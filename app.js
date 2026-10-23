@@ -66,7 +66,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '23 okt 2026, 10:00';
+const VERSIE = '23 okt 2026, 10:30';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
 const OBSIDIAN_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)';
 
@@ -1056,11 +1056,20 @@ async function swipeArchive(id) {
   });
 }
 
+async function swipeStar(card) {
+  const id = card.dataset.id;
+  if (!S.vault?.has(id)) return;
+  const aan = !S.vault.meta(id).ster;
+  if (aan) burst(card.querySelector('.card-top') || card, ['#ffe36e', '#f2c200', '#15151d']);
+  const m = await patchItem(id, { ster: aan });
+  if (m) toast(aan ? 'Ster gegeven' : 'Ster weggehaald', { actie: () => patchItem(id, { ster: !aan }) });
+}
+
 // Once per device: how to clear the feed quickly.
 function swipeTip() {
   if (local.get('cm_tip_swipe', false) || S.items.filter(isActive).length < 2) return;
   local.set('cm_tip_swipe', true);
-  setTimeout(() => toast('Tip: veeg een kaart opzij om hem te archiveren', { duur: 5500 }), 1200);
+  setTimeout(() => toast('Tip: veeg een kaart naar links voor het archief, naar rechts voor een ster', { duur: 6000 }), 1200);
 }
 
 // ---------- quick sort: a deck of unread items ----------
@@ -2598,12 +2607,16 @@ async function boot() {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   setupDeck((dir, id) => (dir === 'tap' ? go(`#/item/${encodeURIComponent(id)}`) : deckAction(dir, id)));
   setupTilt();
-  // Swipe a card in the feed away: into the archive, or back out of it.
+  // Swipe a card in the feed: left into the archive (or back out of it), right for a star.
   setupSwipeAway({
     selector: '#list > .card',
-    icon: icon('archive'),
-    label: (card) => (S.vault?.has(card.dataset.id) && S.vault.meta(card.dataset.id).status === 'archief' ? 'Terugzetten' : 'Archief'),
-    onSwipe: (card) => swipeArchive(card.dataset.id),
+    actionFor: (card, dir) => {
+      const meta = S.vault?.has(card.dataset.id) ? S.vault.meta(card.dataset.id) : null;
+      if (!meta) return null;
+      if (dir === 'right') return { label: meta.ster ? 'Ster weg' : 'Ster', icon: icon('star', !meta.ster), soort: 'ster' };
+      return { label: meta.status === 'archief' ? 'Terugzetten' : 'Archief', icon: icon('archive'), fly: true };
+    },
+    onSwipe: (card, dir) => (dir === 'right' ? swipeStar(card) : swipeArchive(card.dataset.id)),
   });
   route();
   const sharing = S.view === 'deel' || new URLSearchParams(location.search).has('url') || new URLSearchParams(location.search).has('text');
