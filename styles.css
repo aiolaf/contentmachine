@@ -582,3 +582,15 @@ mark { background: var(--marker); color: inherit; border-radius: 2px; padding: 0
 .pf { font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
 .pf.ok { color: #1f6b41; background: var(--tint-mint); }
 .pf.maybe { color: #4a3fb3; background: var(--tint-lav); }
+
+/* ---------- swipe a card away ---------- */
+#list { position: relative; }
+#list > .card { touch-action: pan-y; -webkit-user-select: none; user-select: none; }
+.card.swiping { transition: none; z-index: 2; box-shadow: var(--shadow-lift); cursor: grabbing; }
+.card.swiped { z-index: 2; overflow: hidden; opacity: 0; pointer-events: none; transition: transform .22s ease-in, opacity .22s ease-in, height .24s ease .18s, padding .24s ease .18s, margin .24s ease .18s; }
+.swipe-bg { position: absolute; left: 0; right: 0; z-index: 0; display: flex; align-items: center; justify-content: flex-start; padding: 0 26px; border-radius: var(--radius); background: var(--tint-peach); color: var(--text); font-weight: 500; overflow: hidden; pointer-events: none; transition: height .24s ease .18s, background-color .15s, color .15s; }
+.swipe-bg.left { justify-content: flex-end; }
+.swipe-bg.armed { background: var(--text); color: #fff; }
+.swipe-label { display: inline-flex; align-items: center; gap: 8px; opacity: calc(.35 + var(--p, 0) * .65); transform: scale(calc(.85 + var(--p, 0) * .15)); transition: transform .15s; }
+.swipe-bg.armed .swipe-label { transform: scale(1.06); }
+.swipe-bg.fade { opacity: 0; transition: opacity .25s; }

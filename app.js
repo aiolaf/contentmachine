@@ -19,7 +19,7 @@ import { openTextCache } from './lib/textcache.js';
 import { topicsOf, productionTitle, conceptBody, contentStats, earlierAbout, sameSet } from './lib/content.js';
 import {
   toast as showToast, confirmSlide, rollHtml, animateRolls, burst, pop, switchHtml, flipSwitch,
-  ringHtml, setRing, checkSvg, setGenerate, flyOut, setupDeck, setupTilt,
+  ringHtml, setRing, checkSvg, setGenerate, flyOut, setupDeck, setupTilt, setupSwipeAway,
 } from './ui.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -66,7 +66,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '23 okt 2026, 01:00';
+const VERSIE = '23 okt 2026, 10:00';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
 const OBSIDIAN_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)';
 
@@ -349,6 +349,7 @@ async function loadVaultOnce() {
   runAutoBundle();
   backfill();
   setTimeout(indexTexts, 1500);
+  swipeTip();
 }
 
 // Older items without a preview get one in the background, a few per visit.
@@ -675,7 +676,7 @@ function dateline() {
 function feedView() {
   return `<div class="topbar">
       ${S.map ? `<button class="icon-btn mobile-only" data-action="nav" data-href="#/mappen" aria-label="Terug">${icon('back')}</button>` : ''}
-      <div style="flex:1;min-width:0"><span class="dateline">${esc(dateline())}</span><h1>${esc(S.map || 'Feed')}</h1></div>
+      <div style="flex:1;min-width:0"><span class="dateline" id="dateline">${esc(dateline())}</span><h1>${esc(S.map || 'Feed')}</h1></div>
       <button class="icon-btn" data-action="reload" aria-label="Vernieuwen" title="Vernieuwen">${icon('refresh')}</button>
       <button class="btn" data-action="sort" title="Sortering">${icon('sort')}${SORTS[S.sort]}</button>
     </div>
@@ -1041,6 +1042,25 @@ async function saveVideoFile() {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
   toast(`${file.name} staat in je Downloads`, { soort: 'ok' });
+}
+
+// ---------- swipe to archive ----------
+async function swipeArchive(id) {
+  if (!S.vault?.has(id)) return renderList();
+  const from = S.vault.meta(id).status;
+  const to = from === 'archief' ? 'gelezen' : 'archief';
+  const m = await patchItem(id, { status: to });
+  if (!m) return renderList();
+  toast(to === 'archief' ? 'Gearchiveerd' : 'Teruggezet in je feed', {
+    actie: () => patchItem(id, { status: from }).then((back) => back && to === 'archief' && S.vault.learner.signal(back, 'archief', -1)),
+  });
+}
+
+// Once per device: how to clear the feed quickly.
+function swipeTip() {
+  if (local.get('cm_tip_swipe', false) || S.items.filter(isActive).length < 2) return;
+  local.set('cm_tip_swipe', true);
+  setTimeout(() => toast('Tip: veeg een kaart opzij om hem te archiveren', { duur: 5500 }), 1200);
 }
 
 // ---------- quick sort: a deck of unread items ----------
@@ -1580,6 +1600,8 @@ function renderList() {
   if (list) list.innerHTML = listHtml();
   const chips = $('#chips');
   if (chips) chips.innerHTML = chipsHtml();
+  const line = $('#dateline');
+  if (line) line.textContent = dateline();
   const bundles = $('#bundles');
   if (bundles) bundles.innerHTML = bundleChipsHtml();
   const side = $('.sidebar');
@@ -2576,6 +2598,13 @@ async function boot() {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   setupDeck((dir, id) => (dir === 'tap' ? go(`#/item/${encodeURIComponent(id)}`) : deckAction(dir, id)));
   setupTilt();
+  // Swipe a card in the feed away: into the archive, or back out of it.
+  setupSwipeAway({
+    selector: '#list > .card',
+    icon: icon('archive'),
+    label: (card) => (S.vault?.has(card.dataset.id) && S.vault.meta(card.dataset.id).status === 'archief' ? 'Terugzetten' : 'Archief'),
+    onSwipe: (card) => swipeArchive(card.dataset.id),
+  });
   route();
   const sharing = S.view === 'deel' || new URLSearchParams(location.search).has('url') || new URLSearchParams(location.search).has('text');
   if (sharing) return handleShare();

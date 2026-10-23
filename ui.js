@@ -347,3 +347,107 @@ export function setupTilt() {
   document.documentElement.addEventListener('pointerleave', reset);
   addEventListener('blur', reset);
 }
+
+// ---------- swipe a card away ----------
+// Like Mail: drag a card in a list sideways and an action shows behind it.
+// Past about a third of its width (or with a quick flick) it flies out and
+// folds away, then onSwipe(card, dir) runs. Vertical scrolling stays free:
+// the swipe only starts when the finger moves clearly sideways.
+export function setupSwipeAway({ selector, label = () => 'Archief', icon = '', onSwipe }) {
+  let s = null;
+  let suppressClick = 0;
+  const reset = () => {
+    if (!s) return;
+    const { card, bg } = s;
+    card.classList.remove('swiping');
+    card.style.transform = '';
+    bg?.remove();
+    s = null;
+  };
+  document.addEventListener('pointerdown', (ev) => {
+    const card = ev.target.closest(selector);
+    if (!card || ev.button > 0 || ev.target.closest('button, a, input, textarea, select')) return;
+    s = { card, x0: ev.clientX, y0: ev.clientY, t0: performance.now(), dx: 0, active: false, id: ev.pointerId };
+  });
+  document.addEventListener('pointermove', (ev) => {
+    if (!s || ev.pointerId !== s.id) return;
+    const dx = ev.clientX - s.x0;
+    const dy = ev.clientY - s.y0;
+    if (!s.active) {
+      if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) return reset(); // a scroll, not a swipe
+      if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+      s.active = true;
+      const { card } = s;
+      const list = card.parentElement;
+      const bg = document.createElement('div');
+      bg.className = 'swipe-bg';
+      bg.innerHTML = `<span class="swipe-label">${icon}<span>${escHtml(label(card))}</span></span>`;
+      bg.style.top = `${card.offsetTop}px`;
+      bg.style.height = `${card.offsetHeight}px`;
+      list.insertBefore(bg, card);
+      s.bg = bg;
+      s.width = card.offsetWidth;
+      card.classList.add('swiping');
+      try {
+        card.setPointerCapture(ev.pointerId);
+      } catch {
+        // the pointer is gone already
+      }
+    }
+    s.dx = dx;
+    const p = Math.min(1, Math.abs(dx) / (s.width * 0.35));
+    s.card.style.transform = `translateX(${dx}px) rotate(${dx / 60}deg)`;
+    s.bg.classList.toggle('left', dx < 0);
+    s.bg.classList.toggle('armed', p >= 1);
+    s.bg.style.setProperty('--p', String(p));
+  });
+  const release = (ev) => {
+    if (!s || (ev && ev.pointerId !== s.id)) return;
+    if (!s.active) {
+      s = null;
+      return;
+    }
+    const { card, bg, dx, width, t0 } = s;
+    const fast = Math.abs(dx) / Math.max(1, performance.now() - t0) > 0.6 && Math.abs(dx) > 60;
+    suppressClick = performance.now();
+    if ((Math.abs(dx) > width * 0.35 || fast) && card.isConnected) {
+      s = null;
+      const dir = dx < 0 ? 'left' : 'right';
+      card.classList.remove('swiping');
+      card.classList.add('swiped');
+      card.style.transform = `translateX(${dx < 0 ? -120 : 120}%) rotate(${dx < 0 ? -6 : 6}deg)`;
+      // Fold the gap closed, then hand over.
+      const h = card.offsetHeight;
+      card.style.height = `${h}px`;
+      setTimeout(() => {
+        card.style.height = '0px';
+        card.style.paddingTop = '0px';
+        card.style.paddingBottom = '0px';
+        card.style.marginBottom = `-${getComputedStyle(card.parentElement).rowGap || '0px'}`;
+        bg?.style.setProperty('height', '0px');
+      }, reduced() ? 0 : 180);
+      setTimeout(() => {
+        bg?.remove();
+        onSwipe(card, dir);
+      }, reduced() ? 0 : 420);
+    } else {
+      card.classList.remove('swiping');
+      card.style.transform = '';
+      bg?.classList.add('fade');
+      setTimeout(() => bg?.remove(), 250);
+      s = null;
+    }
+  };
+  document.addEventListener('pointerup', release);
+  document.addEventListener('pointercancel', (ev) => {
+    if (s && ev.pointerId === s.id && !s.active) s = null;
+    else release(ev);
+  });
+  // A swipe ends with a click on the card; that must not open it.
+  document.addEventListener('click', (ev) => {
+    if (performance.now() - suppressClick < 400 && ev.target.closest(selector)) {
+      ev.stopPropagation();
+      ev.preventDefault();
+    }
+  }, true);
+}
