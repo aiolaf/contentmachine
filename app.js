@@ -66,7 +66,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '23 okt 2026, 10:30';
+const VERSIE = '24 okt 2026, 10:00';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
 const OBSIDIAN_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)';
 
@@ -1520,10 +1520,14 @@ function shareHtml() {
 
 function selectionBar() {
   if (!S.selected.size || S.view === 'studio' || S.view === 'concept') return '';
-  return `<div class="overlay" style="background:none;pointer-events:none;align-items:flex-end;bottom:calc(var(--safe-bottom) + 70px)">
-    <div class="sheet" style="pointer-events:auto;border-radius:16px;margin:0 12px;padding:10px 12px;animation:none">
-      <div class="row"><span style="flex:1">${S.selected.size} geselecteerd</span><button class="btn ghost" data-action="clear-picks">Wis</button><button class="btn primary" data-action="nav" data-href="#/studio">${icon('sparkle')}Maak prompt</button></div>
-    </div></div>`;
+  // A floating pill, not a sheet: the feed stays sharp, so you can keep selecting.
+  const picked = [...S.selected].map((id) => S.items.find((i) => i.id === id)).filter(Boolean);
+  return `<div class="select-bar" role="region" aria-label="Selectie">
+    ${facesHtml(picked)}
+    <span class="select-count">${S.selected.size} gekozen</span>
+    <button class="icon-btn select-clear" data-action="clear-picks" aria-label="Selectie wissen" title="Selectie wissen">${icon('x')}</button>
+    <button class="btn primary" data-action="nav" data-href="#/studio">${icon('sparkle')}Maak prompt</button>
+  </div>`;
 }
 
 // ---------- rendering ----------
@@ -1566,7 +1570,7 @@ function render() {
   const mainScroll = $('.main')?.scrollTop || 0;
   const paneScroll = $('.detail-pane')?.scrollTop || 0;
   const focusId = document.activeElement?.id;
-  app.innerHTML = `<div class="shell ${showPane ? 'has-detail' : ''}">
+  app.innerHTML = `<div class="shell ${showPane ? 'has-detail' : ''} ${S.selected.size && !['studio', 'concept'].includes(S.view) ? 'selecting' : ''}">
       <aside class="sidebar">${sidebarHtml()}</aside>
       <main class="main" id="main">${main}</main>
       ${showPane ? `<section class="detail-pane" id="pane">${detailHtml()}</section>` : ''}
