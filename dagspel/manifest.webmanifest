@@ -1,0 +1,17 @@
+{
+  "name": "NinA Dagspel",
+  "short_name": "Dagspel",
+  "description": "Je taken als een spel. Swipe je dag bij elkaar, streep weg in de avond.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0c0e18",
+  "theme_color": "#0c0e18",
+  "lang": "nl",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

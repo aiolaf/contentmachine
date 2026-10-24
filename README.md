@@ -313,3 +313,7 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | `lib/prompts.js` | prompt-generator |
 | `lib/haiku.js` | optionele Claude Haiku-stap |
 | `lib/frontmatter.js` | YAML-eigenschappen lezen en schrijven |
+
+## Ook op deze site: Dagspel
+
+[`dagspel/`](dagspel/) is je takenlijst als spel, op https://aiolaf.github.io/contentmachine/dagspel/. Zelfde vault, zelfde token. Zie [dagspel/README.md](dagspel/README.md).
