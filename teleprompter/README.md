@@ -6,7 +6,8 @@ Geen build, geen server, geen account. Alleen statische bestanden.
 
 ## Zo werkt het
 
-- **Smalle kolom direct onder de camera.** Op de Mac bovenin het midden, onder de notch. Op de iPhone onder het Dynamic Island. Draai je de iPhone, dan schuift de tekst naar de kant waar de camera zit.
+- **Smalle kolom direct onder de camera.** Op de Mac bovenin het midden, onder de notch. Op een iPhone met Dynamic Island (14 Pro en nieuwer) staat de tekst onder de cameralens zelf: die zit rechts in het eiland, dus de kolom schuift 44 punten naar rechts. Draai je de iPhone, dan schuift de tekst naar de kant waar de camera zit.
+- **Per regel (standaard).** De regel die je leest staat helemaal bovenin, direct onder de camera, en blijft daar staan. Is hij voorgelezen in het tempo dat je hebt ingesteld, dan schuift de volgende regel omhoog. De regels daarna staan gedimd klaar. Je ogen blijven zo op één plek bij de lens. **Doorlopend** scrollt de tekst zoals een klassieke teleprompter.
 - **Tempo in woorden per minuut.** Grotere letters of een smallere kolom veranderen het leestempo niet. Onder je tekst zie je hoe lang de opname ongeveer duurt.
 - **Opnemen in de app.** Camera en microfoon, met de tekst over je eigen beeld. Na afloop bewaar je de video in Foto's (iPhone) of als bestand (Mac).
 - **Zwevend venster (Chrome en Edge op de Mac).** Een venster dat boven Zoom, Loom, QuickTime, OBS of Riverside blijft. Sleep het één keer pal onder je camera en neem op met je eigen app.
@@ -19,7 +20,7 @@ Geen build, geen server, geen account. Alleen statische bestanden.
 | Pauze en verder | tik op het scherm, of spatie |
 | Tekst verschuiven | slepen, of scrollen met je trackpad |
 | Tempo | pijl omhoog en omlaag, of de plus en min onderin |
-| Twee regels terug of vooruit | pijl links en rechts, Page Up en Page Down (werkt met een presentatieklikker) |
+| Regel terug of verder | pijl links en rechts, Page Up en Page Down (werkt met een presentatieklikker) |
 | Tekst groter of kleiner | `+` en `-` |
 | Opname starten of stoppen | rode knop, of Enter |
 | Terug naar je tekst | Esc of het kruisje |
@@ -35,7 +36,9 @@ De camera werkt alleen via https, dus niet als je `index.html` als bestand opent
 
 ## Op je iPhone
 
-Open je hem vanuit de Contentmachine op je beginscherm, dan blijft hij in dat app-venster. Wil je een eigen icoon: open het adres in Safari, tik op Deel en kies **Zet op beginscherm**. Dan krijg je het hele scherm en staat de tekst direct onder het Dynamic Island.
+Open je hem vanuit de Contentmachine op je beginscherm, dan blijft hij in dat app-venster en begint de tekst net onder de statusbalk. Het dichtst bij de camera kom je met een eigen icoon: open het adres in Safari, tik op Deel en kies **Zet op beginscherm**. Dan mag de pagina onder de statusbalk door en staat de bovenste regel 2 punten onder het Dynamic Island.
+
+Nog dichterbij: zet **Tekstgrootte** wat lager (24 tot 26) en **Breedte** op 55 tot 65 procent. Met **Afstand tot camera** en **Verschuiven** stel je de laatste punten bij.
 
 ## Op je MacBook
 

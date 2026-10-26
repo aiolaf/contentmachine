@@ -68,6 +68,13 @@
             <button type="button" data-value="right">Rechts</button>
           </div>
         </div>
+        <div class="field wide">
+          <span class="row"><span>Weergave</span></span>
+          <div class="seg" role="radiogroup" data-key="mode">
+            <button type="button" data-value="step">Per regel</button>
+            <button type="button" data-value="scroll">Doorlopend</button>
+          </div>
+        </div>
         <div class="field">
           <span class="row"><span>Uitlijning</span></span>
           <div class="seg" role="radiogroup" data-key="align">
@@ -100,7 +107,7 @@
         <tr><td>Tik of spatie</td><td>pauze en verder</td></tr>
         <tr><td>Slepen of scrollen</td><td>tekst zelf verschuiven</td></tr>
         <tr><td>Pijl omhoog en omlaag</td><td>tempo sneller of langzamer</td></tr>
-        <tr><td>Pijl links en rechts, Page Up en Down</td><td>twee regels terug of vooruit (ook met een presentatieklikker)</td></tr>
+        <tr><td>Pijl links en rechts, Page Up en Down</td><td>regel terug of verder (ook met een presentatieklikker)</td></tr>
         <tr><td>+ en -</td><td>tekst groter of kleiner</td></tr>
         <tr><td>Enter</td><td>opname starten of stoppen</td></tr>
         <tr><td>Esc</td><td>terug naar je tekst</td></tr>
@@ -121,9 +128,9 @@
       <div class="hud-row">
         <button type="button" class="ic" id="h-close" aria-label="Terug naar je tekst"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
         <button type="button" class="ic" id="h-home" aria-label="Naar het begin"><svg viewBox="0 0 24 24"><path d="M5 5v14M19 6l-9 6 9 6z"/></svg></button>
-        <button type="button" class="ic" id="h-back" aria-label="Twee regels terug"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+        <button type="button" class="ic" id="h-back" aria-label="Terug"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
         <button type="button" class="ic big" id="h-play" aria-label="Start"><svg viewBox="0 0 24 24" class="i-play"><path d="M8 5l11 7-11 7z"/></svg><svg viewBox="0 0 24 24" class="i-pause"><path d="M8 5v14M16 5v14"/></svg></button>
-        <button type="button" class="ic" id="h-fwd" aria-label="Twee regels vooruit"><svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+        <button type="button" class="ic" id="h-fwd" aria-label="Verder"><svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
         <div class="speed">
           <button type="button" class="ic sm" id="h-slower" aria-label="Langzamer"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button>
           <span id="h-wpm"></span>
