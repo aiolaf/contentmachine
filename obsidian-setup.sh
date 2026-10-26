@@ -34,6 +34,7 @@ else
   read -rsp "Token: " TOKEN
   echo
   TOKEN="$(printf '%s' "$TOKEN" | tr -d '[:space:]')"
+  TOKEN="${TOKEN#Bearer}"
   if [ -z "$TOKEN" ]; then echo "Geen token ingevuld."; exit 1; fi
 
   # The macOS keychain keeps the token, so it is not written in any file.

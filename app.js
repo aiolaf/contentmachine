@@ -66,7 +66,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '24 okt 2026, 10:00';
+const VERSIE = '26 okt 2026, 10:00';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
 const OBSIDIAN_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)';
 
@@ -1367,10 +1367,12 @@ function settingsView() {
       <h3>Obsidian op je Mac</h3>
       <p class="small muted">Je items staan als Markdown in GitHub (${esc(c.owner)}/${esc(c.repo)}). Obsidian op je Mac houdt een kopie bij die elke 5 minuten synchroniseert. Eenmalig instellen:</p>
       <ol class="steps small">
-        <li>Installeer <a href="https://obsidian.md/download" target="_blank" rel="noopener">Obsidian</a> als je dat nog niet hebt.</li>
-        <li>Open <b>Terminal</b>, plak deze regel en druk op Enter. Plak je token als daarom gevraagd wordt.
+        <li>Installeer <a href="https://obsidian.md/download" target="_blank" rel="noopener">Obsidian</a> als je dat nog niet hebt. De plugin Obsidian Git hoef je niet zelf te installeren; dat doet de regel hieronder.</li>
+        <li>Kopieer je token: <button class="btn" data-action="copy-token" style="margin-left:4px">${icon('copy')}Kopieer token</button></li>
+        <li>Open <b>Terminal</b> (Cmd+spatie, typ Terminal), plak deze regel en druk op Enter. Vraagt hij om <b>Token</b>, plak dan met Cmd+V en druk op Enter. Je ziet niets verschijnen, dat hoort zo.
           <div class="copyline"><code>${esc(OBSIDIAN_COMMAND)}</code><button class="icon-btn" data-action="copy" data-v="${esc(OBSIDIAN_COMMAND)}" aria-label="Kopieer">${icon('copy')}</button></div></li>
-        <li>In Obsidian: <b>Open folder as vault</b>, kies <code>~/Obsidian/Contentmachine</code> en daarna <b>Trust author and enable plugins</b>.</li>
+        <li>In Obsidian: linksonder het kluisje, <b>Open folder as vault</b>, kies <code>~/Obsidian/Contentmachine</code> en daarna <b>Trust author and enable plugins</b>.</li>
+        <li>Klaar. Nieuwe items komen elke 5 minuten binnen; meteen ophalen met Cmd+P en <b>Git: Pull</b>.</li>
       </ol>
     </div>`}
 
@@ -2278,6 +2280,8 @@ const actions = {
     go('#/studio');
   },
   copy: (el) => copy(el.dataset.v),
+  // The token never sits in the page; it goes straight to the clipboard.
+  'copy-token': () => copy(S.cfg.token, 'Token gekopieerd. Plak het in Terminal als daarom gevraagd wordt.'),
   add: () => {
     S.sheet = 'add';
     render();

@@ -1,7 +1,7 @@
 // App shell cache: opens instantly on the iPhone, refreshes in the background.
 // Only this app's own files are cached; GitHub and other APIs always go to the network.
 // Dagspel lives in dagspel/ on the same site and has its own worker and cache.
-const CACHE = 'cm-v20';
+const CACHE = 'cm-v21';
 const SHELL = [
   './', 'index.html', 'app.js', 'ui.js', 'styles.css', 'fonts/outfit-latin-wght-normal.woff2', 'fonts/outfit-latin-ext-wght-normal.woff2', 'icon.svg', 'manifest.webmanifest', 'apple-touch-icon.png',
   'lib/frontmatter.js', 'lib/store.js', 'lib/vault.js', 'lib/capture.js', 'lib/classify.js',
