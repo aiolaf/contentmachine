@@ -53,6 +53,7 @@ const ICONS = {
   layers: '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
   chevron: '<path d="m6 9 6 6 6-6"/>',
   download: '<path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+  video: '<path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.87a.5.5 0 0 0-.75-.43L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   marker: '<path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
@@ -66,7 +67,9 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '26 okt 2026, 10:00';
+const VERSIE = '26 okt 2026, 21:30';
+// The Teleprompter lives in teleprompter/ on the same site; it shows a link back here.
+const TELEPROMPTER_URL = 'teleprompter/?van=contentmachine';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
 const OBSIDIAN_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)';
 
@@ -1207,7 +1210,7 @@ const GEN_LABELS = { rust: 'Maak prompt', bezig: 'Prompt maken...', klaar: 'Klaa
 
 function studioView() {
   const picked = [...S.selected].map((id) => S.items.find((i) => i.id === id)).filter(Boolean);
-  return `<div class="topbar"><div style="flex:1"><span class="dateline">Prompt-generator</span><h1>Studio</h1></div></div>
+  return `<div class="topbar"><div style="flex:1"><span class="dateline">Prompt-generator</span><h1>Studio</h1></div><a class="btn" href="${TELEPROMPTER_URL}">${icon('video')}Teleprompter</a></div>
     <p class="muted">Kies bronnen (rondje op een kaart) en een vorm. Je krijgt een complete prompt met je profiel, stijl en bronnen. Plak die in Claude of ChatGPT; de app gebruikt zelf geen AI.</p>
     <div class="panel">
       <h3>Bronnen (${picked.length})</h3>
@@ -1446,6 +1449,7 @@ function sidebarHtml() {
     ${nav('#/vandaag', 'sun', 'Vandaag', S.view === 'vandaag' || (S.view === 'item' && S.itemFrom === 'vandaag'), reviewWaiting() ? 'nieuw' : '')}
     ${nav('#/studio', 'pen', 'Studio', S.view === 'studio' || S.view === 'concept' || (S.view === 'item' && S.itemFrom === 'concept'), S.selected.size || '')}
     ${nav('#/video', 'download', 'Video downloaden', S.view === 'video')}
+    ${nav(TELEPROMPTER_URL, 'video', 'Teleprompter', false)}
     ${nav('#/instellingen', 'settings', 'Instellingen', S.view === 'instellingen')}
     <div class="nav-label">Mappen</div>
     ${folderList().map((f) => nav(`#/map/${encodeURIComponent(f.naam)}`, f.naam === 'Inbox' ? 'inbox' : 'folder', esc(f.naam), S.map === f.naam && (S.view === 'map' || S.view === 'item'), f.aantal)

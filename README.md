@@ -317,3 +317,7 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 ## Ook op deze site: Dagspel
 
 [`dagspel/`](dagspel/) is je takenlijst als spel, op https://aiolaf.github.io/contentmachine/dagspel/. Zelfde vault, zelfde token. Zie [dagspel/README.md](dagspel/README.md).
+
+## Ook op deze site: Teleprompter
+
+[`teleprompter/`](teleprompter/) zet je tekst pal onder de camera van je iPhone of MacBook, zodat je tijdens het voorlezen in de lens kijkt. Open hem in de app via **Studio** (of in de zijbalk op de Mac), of rechtstreeks op https://aiolaf.github.io/contentmachine/teleprompter/. Zie [teleprompter/README.md](teleprompter/README.md).

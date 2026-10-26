@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Teleprompter</title>
+  <meta name="description" content="Teleprompter die de tekst pal onder je camera zet, zodat je altijd in de lens kijkt.">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Prompter">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="editor">
+    <header class="top">
+      <a class="back" id="back" href="../" hidden>‹ Contentmachine</a>
+      <h1><span class="dot" aria-hidden="true"></span>Teleprompter</h1>
+      <p class="sub">De tekst staat pal onder je camera. Zo kijk je altijd in de lens.</p>
+    </header>
+
+    <div id="install-tip" class="tip" hidden>
+      <strong>Tip voor iPhone:</strong> tik op Deel en kies <em>Zet op beginscherm</em>. Open de app daarvandaan: dan krijg je het hele scherm en staat de tekst direct onder het Dynamic Island.
+    </div>
+
+    <section class="card">
+      <label class="label" for="script">Je tekst</label>
+      <textarea id="script" spellcheck="true" placeholder="Plak of typ hier je tekst.&#10;&#10;Tussen [haken] zet je regie, bijvoorbeeld [pauze] of [glimlach]. Die zie je in paars en lees je niet voor.&#10;**Dikgedrukt** mag ook."></textarea>
+      <p class="stats" id="stats">0 woorden</p>
+    </section>
+
+    <section class="card" id="settings-home">
+      <div id="settings" class="settings">
+        <div class="field">
+          <div class="row"><label for="wpm">Tempo</label><output id="wpm-out"></output></div>
+          <input type="range" id="wpm" min="60" max="260" step="5">
+        </div>
+        <div class="field">
+          <div class="row"><label for="size">Tekstgrootte</label><output id="size-out"></output></div>
+          <input type="range" id="size" min="16" max="96" step="1">
+        </div>
+        <div class="field">
+          <div class="row"><label for="width">Breedte</label><output id="width-out"></output></div>
+          <input type="range" id="width" min="15" max="100" step="1">
+        </div>
+        <div class="field">
+          <div class="row"><label for="lines">Regels in beeld</label><output id="lines-out"></output></div>
+          <input type="range" id="lines" min="1" max="8" step="1">
+        </div>
+        <div class="field">
+          <div class="row"><label for="gap">Afstand tot camera</label><output id="gap-out"></output></div>
+          <input type="range" id="gap" min="-40" max="300" step="2">
+        </div>
+        <div class="field">
+          <div class="row"><label for="shift">Verschuiven</label><output id="shift-out"></output></div>
+          <input type="range" id="shift" min="-400" max="400" step="2">
+        </div>
+        <div class="field wide">
+          <span class="row"><span>Waar zit je camera?</span></span>
+          <div class="seg" role="radiogroup" data-key="anchor">
+            <button type="button" data-value="auto">Automatisch</button>
+            <button type="button" data-value="top">Boven</button>
+            <button type="button" data-value="left">Links</button>
+            <button type="button" data-value="right">Rechts</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="row"><span>Uitlijning</span></span>
+          <div class="seg" role="radiogroup" data-key="align">
+            <button type="button" data-value="center">Midden</button>
+            <button type="button" data-value="left">Links</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="row"><span>Aftellen</span></span>
+          <div class="seg" role="radiogroup" data-key="countdown">
+            <button type="button" data-value="0">Uit</button>
+            <button type="button" data-value="3">3 s</button>
+            <button type="button" data-value="5">5 s</button>
+          </div>
+        </div>
+        <label class="switch wide"><input type="checkbox" id="record"><span>Opnemen in de app <small>camera en microfoon, video bewaar je daarna in Foto's of Downloads</small></span></label>
+        <label class="switch wide" id="selfview-wrap"><input type="checkbox" id="selfview"><span>Toon mezelf tijdens opnemen</span></label>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button type="button" class="btn primary" id="start">Start teleprompter</button>
+      <button type="button" class="btn" id="float" hidden>Zwevend venster</button>
+    </div>
+    <p class="hint" id="float-hint"></p>
+
+    <details class="help">
+      <summary>Bediening</summary>
+      <table>
+        <tr><td>Tik of spatie</td><td>pauze en verder</td></tr>
+        <tr><td>Slepen of scrollen</td><td>tekst zelf verschuiven</td></tr>
+        <tr><td>Pijl omhoog en omlaag</td><td>tempo sneller of langzamer</td></tr>
+        <tr><td>Pijl links en rechts, Page Up en Down</td><td>twee regels terug of vooruit (ook met een presentatieklikker)</td></tr>
+        <tr><td>+ en -</td><td>tekst groter of kleiner</td></tr>
+        <tr><td>Enter</td><td>opname starten of stoppen</td></tr>
+        <tr><td>Esc</td><td>terug naar je tekst</td></tr>
+      </table>
+    </details>
+  </main>
+
+  <div id="prompter" hidden>
+    <video id="preview" playsinline muted autoplay></video>
+    <div id="lens">
+      <div id="track"><div id="text"></div></div>
+      <div id="marker" aria-hidden="true"></div>
+      <div id="count" aria-live="assertive"></div>
+    </div>
+    <div id="toast" role="status"></div>
+    <div id="hud">
+      <div class="progress"><div id="bar"></div></div>
+      <div class="hud-row">
+        <button type="button" class="ic" id="h-close" aria-label="Terug naar je tekst"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        <button type="button" class="ic" id="h-home" aria-label="Naar het begin"><svg viewBox="0 0 24 24"><path d="M5 5v14M19 6l-9 6 9 6z"/></svg></button>
+        <button type="button" class="ic" id="h-back" aria-label="Twee regels terug"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+        <button type="button" class="ic big" id="h-play" aria-label="Start"><svg viewBox="0 0 24 24" class="i-play"><path d="M8 5l11 7-11 7z"/></svg><svg viewBox="0 0 24 24" class="i-pause"><path d="M8 5v14M16 5v14"/></svg></button>
+        <button type="button" class="ic" id="h-fwd" aria-label="Twee regels vooruit"><svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+        <div class="speed">
+          <button type="button" class="ic sm" id="h-slower" aria-label="Langzamer"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button>
+          <span id="h-wpm"></span>
+          <button type="button" class="ic sm" id="h-faster" aria-label="Sneller"><svg viewBox="0 0 24 24"><path d="M6 12h12M12 6v12"/></svg></button>
+        </div>
+        <button type="button" class="ic rec" id="h-rec" aria-label="Opname starten"><span></span></button>
+        <button type="button" class="ic" id="h-gear" aria-label="Instellingen"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></button>
+      </div>
+      <div class="hud-meta"><span id="h-time"></span><span id="h-rectime"></span></div>
+    </div>
+    <div id="sheet" hidden><div class="sheet-inner" id="sheet-inner"><button type="button" class="btn" id="sheet-done">Klaar</button></div></div>
+  </div>
+
+  <div id="result" hidden>
+    <div class="result-card">
+      <h2>Je opname</h2>
+      <video id="result-video" playsinline controls></video>
+      <p class="stats" id="result-info"></p>
+      <div class="actions">
+        <button type="button" class="btn primary" id="r-share">Bewaar of deel</button>
+        <a class="btn" id="r-download" download>Download</a>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn" id="r-again">Nog een take</button>
+        <button type="button" class="btn ghost" id="r-done">Terug naar je tekst</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

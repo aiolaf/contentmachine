@@ -1,7 +1,7 @@
 // App shell cache: opens instantly on the iPhone, refreshes in the background.
 // Only this app's own files are cached; GitHub and other APIs always go to the network.
-// Dagspel lives in dagspel/ on the same site and has its own worker and cache.
-const CACHE = 'cm-v21';
+// Dagspel (dagspel/) and the Teleprompter (teleprompter/) live on the same site and load on their own.
+const CACHE = 'cm-v22';
 const SHELL = [
   './', 'index.html', 'app.js', 'ui.js', 'styles.css', 'fonts/outfit-latin-wght-normal.woff2', 'fonts/outfit-latin-ext-wght-normal.woff2', 'icon.svg', 'manifest.webmanifest', 'apple-touch-icon.png',
   'lib/frontmatter.js', 'lib/store.js', 'lib/vault.js', 'lib/capture.js', 'lib/classify.js',
@@ -25,7 +25,7 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin || !url.pathname.startsWith(new URL(self.registration.scope).pathname)) return;
-  if (url.pathname.startsWith(new URL('dagspel/', self.registration.scope).pathname)) return;
+  if (['dagspel/', 'teleprompter/'].some((dir) => url.pathname.startsWith(new URL(dir, self.registration.scope).pathname))) return;
   // Every page (with or without ?url=) is the same single-page app.
   const key = e.request.mode === 'navigate' ? new URL('index.html', self.registration.scope).href : url.href.split('?')[0];
   e.respondWith(
