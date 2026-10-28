@@ -30,21 +30,67 @@ else
     exit 1
   fi
   say "Stap 1 van 3: je GitHub-token"
-  echo "Plak het token dat je voor de app maakte (begint met github_pat_). Je ziet niets verschijnen terwijl je plakt; druk daarna op Enter."
-  read -rsp "Token: " TOKEN
-  echo
-  TOKEN="$(printf '%s' "$TOKEN" | tr -d '[:space:]')"
-  TOKEN="${TOKEN#Bearer}"
-  if [ -z "$TOKEN" ]; then echo "Geen token ingevuld."; exit 1; fi
+  echo "Tik in de app op Instellingen, Obsidian op je Mac, Kopieer token. Druk daarna hier op Enter."
+  echo "(Of plak het token hier zelf en druk op Enter. Je ziet dan niets verschijnen.)"
 
-  # The macOS keychain keeps the token, so it is not written in any file.
+  # Asks until GitHub accepts the token for the vault repo. Enter alone reads
+  # the clipboard, so copying this command after the token cannot get in the way.
+  TOKEN=""
+  for poging in 1 2 3; do
+    read -rsp "Enter: " TOKEN
+    echo
+    VAN_KLEMBORD=""
+    if [ -z "$(printf '%s' "$TOKEN" | tr -d '[:space:]')" ]; then
+      TOKEN="$(pbpaste 2>/dev/null || true)"
+      VAN_KLEMBORD=1
+    fi
+    TOKEN="$(printf '%s' "$TOKEN" | tr -d '[:space:]')"
+    TOKEN="${TOKEN#Bearer}"
+    PATROON='^(github_pat_|ghp_)[A-Za-z0-9_]{20,}$'
+    if ! [[ "$TOKEN" =~ $PATROON ]]; then
+      if [ -n "$VAN_KLEMBORD" ]; then
+        echo "Op je klembord staat geen GitHub-token. Tik in de app op Kopieer token en druk hier opnieuw op Enter."
+      else
+        echo "Dat is geen GitHub-token (die begint met github_pat_). Tik in de app op Kopieer token en druk hier op Enter."
+      fi
+      TOKEN=""
+      continue
+    fi
+    # The header goes in through stdin, so the token does not show up in the process list.
+    STATUS="$(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" | curl -s -o /dev/null -w '%{http_code}' -K - \
+      -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$OWNER/$REPO" || true)"
+    case "$STATUS" in
+      200) break ;;
+      401) echo "GitHub kent dit token niet: het klopt niet, is verlopen of is ingetrokken. Maak een nieuw token (zie de README) en zet het ook in de app." ;;
+      403|404) echo "Dit token mag niet bij $OWNER/$REPO. Geef het op GitHub toegang tot die repo met Contents: Read and write." ;;
+      *) echo "GitHub is niet bereikbaar (code $STATUS). Controleer je internet en probeer het opnieuw." ;;
+    esac
+    TOKEN=""
+  done
+  if [ -z "$TOKEN" ]; then echo "Gestopt zonder geldig token. Draai het commando opnieuw als je het token hebt."; exit 1; fi
+  if [ -n "$VAN_KLEMBORD" ]; then
+    printf '' | pbcopy 2>/dev/null || true
+    echo "Token klopt. Je klembord is weer leeg."
+  else
+    echo "Token klopt."
+  fi
+
+  # The macOS keychain keeps the token, so it is not written in any file. It is
+  # stored under its own user name, so it never mixes with other GitHub logins
+  # on this Mac, and the empty helper first switches off any helper that
+  # already holds an older GitHub login (GitHub Desktop, gh, another manager).
   if [ -x "$(git --exec-path)/git-credential-osxkeychain" ]; then HELPER=osxkeychain; else HELPER=store; fi
-  printf 'protocol=https\nhost=github.com\nusername=%s\npassword=%s\n\n' "$OWNER" "$TOKEN" | git -c credential.helper="$HELPER" credential approve
+  GEBRUIKER=x-access-token
+  KEY="$(printf 'protocol=https\nhost=github.com\nusername=%s\n' "$GEBRUIKER")"
+  printf '%s\n\n' "$KEY" | git -c credential.helper= -c credential.helper="$HELPER" credential reject
+  printf '%s\npassword=%s\n\n' "$KEY" "$TOKEN" | git -c credential.helper= -c credential.helper="$HELPER" credential approve
 
   say "Stap 2 van 3: je vault binnenhalen"
   mkdir -p "$(dirname "$DEST")"
-  git -c credential.helper="$HELPER" clone "https://$OWNER@github.com/$OWNER/$REPO.git" "$DEST"
-  git -C "$DEST" config credential.helper "$HELPER"
+  git -c credential.helper= -c credential.helper="$HELPER" clone "https://$GEBRUIKER@github.com/$OWNER/$REPO.git" "$DEST"
+  git -C "$DEST" config --unset-all credential.helper 2>/dev/null || true
+  git -C "$DEST" config --add credential.helper ""
+  git -C "$DEST" config --add credential.helper "$HELPER"
 fi
 
 say "Stap 3 van 3: plugin Obsidian Git installeren"

@@ -84,7 +84,7 @@ GitHub is het tussenstation: de app schrijft je items in `contentmachine-vault`,
    bash <(curl -fsSL https://raw.githubusercontent.com/aiolaf/contentmachine/main/obsidian-setup.sh)
    ```
 
-   Het script vraagt je token (hetzelfde als in de app) en bewaart dat in de sleutelhanger van je Mac. Het haalt je vault binnen in `~/Obsidian/Contentmachine` en installeert Obsidian Git zo dat die bij het openen en daarna elke 5 minuten synchroniseert.
+   Het script vraagt je token: tik in de app op **Kopieer token** (Instellingen, Obsidian op je Mac) en druk in Terminal op Enter. Het script controleert het token bij GitHub, wist daarna je klembord en bewaart het token in de sleutelhanger van je Mac, los van andere GitHub-logins. Het haalt je vault binnen in `~/Obsidian/Contentmachine` en installeert Obsidian Git zo dat die bij het openen en daarna elke 5 minuten synchroniseert.
 3. In Obsidian: **Open folder as vault**, kies `~/Obsidian/Contentmachine` en daarna **Trust author and enable plugins**.
 
 Meteen ophalen in plaats van wachten: Cmd+P en typ "Git: Pull".
