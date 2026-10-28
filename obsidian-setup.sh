@@ -135,11 +135,14 @@ if [ -n "$(git -C "$DEST" status --porcelain .gitignore)" ]; then
   git -C "$DEST" push -q || echo "Let op: terugsturen naar GitHub lukte niet. Controleer of je token Contents: Read and write heeft."
 fi
 
+# The folder is easy to miss in the file picker, so its path goes on the clipboard.
+printf '%s' "$DEST" | pbcopy 2>/dev/null || true
 say "Klaar. Je vault staat in $DEST"
 cat <<TXT
 Nu in Obsidian:
   1. Kies linksonder het kluisje (Open another vault), dan "Open folder as vault".
-  2. Kies de map:  $DEST
+  2. Druk in het venster op Cmd+Shift+G, dan Cmd+V (de map staat al op je klembord) en Enter.
+     Kies daarna "Open". Dit is de map met README.md, Taken en Contentmachine erin.
   3. Obsidian vraagt of je de plugins vertrouwt: kies "Trust author and enable plugins".
 
 Daarna haalt Obsidian elke 5 minuten nieuwe items op en stuurt je wijzigingen terug.
