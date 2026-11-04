@@ -321,3 +321,7 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 ## Ook op deze site: Teleprompter
 
 [`teleprompter/`](teleprompter/) zet je tekst pal onder de camera van je iPhone of MacBook, zodat je tijdens het voorlezen in de lens kijkt. Open hem in de app via **Studio** (of in de zijbalk op de Mac), of rechtstreeks op https://aiolaf.github.io/contentmachine/teleprompter/. Zie [teleprompter/README.md](teleprompter/README.md).
+
+## Ook op deze site: Notulist
+
+[`notulist/`](notulist/) is je eigen notulist voor iPhone en Mac. Neem een gesprek of dictaat op, laat het uitschrijven met wie wat zei (ElevenLabs of OpenAI, met je eigen sleutel) en kopieer het transcript met één tik naar Claude of ChatGPT. Opnames en transcripten blijven op je eigen apparaat. Open hem op https://aiolaf.github.io/contentmachine/notulist/ en zet hem op je beginscherm. De Mac-app die meetings vanzelf opneemt en de Claude-koppeling staan in de repo Agent-town. Zie [notulist/README.md](notulist/README.md).

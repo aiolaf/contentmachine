@@ -1,0 +1,21 @@
+{
+  "name": "Notulist",
+  "short_name": "Notulist",
+  "description": "Dictafoon en meeting-notulist. Neem op, laat uitschrijven met wie-is-wie en kopieer het transcript naar Claude of ChatGPT. Alles blijft op je eigen apparaat.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#fafafa",
+  "lang": "nl",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "launch_handler": { "client_mode": "focus-existing" },
+  "shortcuts": [
+    { "name": "Neem op", "url": "./#/opnemen" }
+  ]
+}
