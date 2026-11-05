@@ -1,7 +1,7 @@
 // App shell cache: Notulist opens instantly and works offline (recording works
 // without internet; transcribing waits until you are online).
 // Only this app's own files are cached. API calls always go to the network.
-const CACHE = 'notulist-v1';
+const CACHE = 'notulist-v2';
 const SHELL = [
   './', 'index.html', 'app.js', 'styles.css', 'icon.svg', 'manifest.webmanifest', 'apple-touch-icon.png',
   'lib/util.js', 'lib/db.js', 'lib/recorder.js', 'lib/transcribe.js', 'lib/segments.js', 'lib/format.js',

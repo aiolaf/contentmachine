@@ -6,7 +6,7 @@ import { WebRecorder, recordingSupported, recoverAudio, extFor } from './lib/rec
 import { transcribe, PROVIDERS, LANGUAGES } from './lib/transcribe.js';
 import { shiftPart, speakerKeys, talkTime, samples, mergeSpeaker } from './lib/segments.js';
 import { speakerLabel, participants, llmText, toMarkdown, fileNameFor, parseMarkdown, transcriptText } from './lib/format.js';
-import { appsScriptCode, fetchAppsScript, relevantEvents, eventAt, otherAttendees, normalizeEvents } from './lib/calendar.js';
+import { appsScriptCode, fetchAppsScript, relevantEvents, otherAttendees, normalizeEvents, eventsAround, eventsOnDay } from './lib/calendar.js';
 import { encodeShare, decodeShare, shareMeeting, download, markdownFile, MAX_LINK } from './lib/share.js';
 import { PROMPTS } from './lib/prompts.js';
 import * as native from './lib/native.js';
@@ -250,7 +250,7 @@ function newMeeting(event, extra = {}) {
 
 async function startRecording(event = null) {
   if (state.recording) { showRecorder(); return; }
-  if (!event) event = eventAt(state.events);
+  // Only link an appointment you picked yourself. Otherwise you choose afterwards.
   const m = newMeeting(event);
   if (native.isNative) {
     await saveMeeting(m, { sync: false });
@@ -449,9 +449,10 @@ async function onNativeEvent(evt) {
   } else if (evt.type === 'recordingStarted') {
     let m = getMeeting(evt.id);
     if (!m) {
-      const event = evt.calendar ? normalizeEvents([evt.calendar])[0] : eventAt(state.events, Date.parse(evt.startedAt) || Date.now());
+      // A meeting the Mac detected may carry its appointment; a recording you started does not.
+      const event = evt.trigger && evt.calendar ? normalizeEvents([evt.calendar])[0] : null;
       m = newMeeting(event, { id: evt.id, source: evt.trigger ? 'mac-auto' : 'mac', startedAt: evt.startedAt || new Date().toISOString() });
-      if (evt.title && !event) m.title = evt.title;
+      if (evt.title && !event && evt.title !== evt.calendar?.title) m.title = evt.title;
       await saveMeeting(m, { sync: false });
     }
     state.recording = { id: evt.id, native: true, startedAt: Date.parse(evt.startedAt) || Date.now(), trigger: evt.trigger || '', system: !!evt.system };
@@ -484,9 +485,9 @@ async function onNativeEvent(evt) {
 async function importNative(info) {
   let m = getMeeting(info.id);
   if (!m) {
-    const event = info.calendar ? normalizeEvents([info.calendar])[0] : null;
+    const event = info.trigger && info.calendar ? normalizeEvents([info.calendar])[0] : null;
     m = newMeeting(event, { id: info.id, source: info.trigger ? 'mac-auto' : 'mac', startedAt: info.startedAt || new Date().toISOString() });
-    if (info.title && !event) m.title = info.title;
+    if (info.title && !event && info.title !== info.calendar?.title) m.title = info.title;
   }
   if (!(m.parts?.[0]?.size)) {
     const blob = await native.readRecording(info.id, info.size, info.mime || 'audio/mp4');
@@ -662,6 +663,9 @@ function moreSheet(m) {
     h('div', { class: 'stack' },
       m.segments?.length ? btn('Deel als link (alleen lezen)', () => { close(); shareLink(m, linkCode); }, { cls: 'menu-item', ic: 'link' }) : null,
       m.segments?.length ? btn('Deel als tekst', () => { close(); shareMeeting(m, { asText: true }).catch(() => {}); }, { cls: 'menu-item', ic: 'share' }) : null,
+      m.calendar
+        ? btn('Ontkoppel van de agenda', () => { close(); unlinkEvent(m); }, { cls: 'menu-item', ic: 'cal' })
+        : btn('Koppel aan een afspraak', () => { close(); eventSheet(m); }, { cls: 'menu-item', ic: 'cal' }),
       btn('Download Markdown (.md)', () => { close(); download(markdownFile(m)); }, { cls: 'menu-item', ic: 'download' }),
       hasAudio ? btn('Download audio', async () => { close(); for (let p = 0; p < m.parts.length; p++) { const b = await audio.get(m.id, p); if (b) download(new File([b], `${fileNameFor(m).replace(/\.md$/, '')}${m.parts.length > 1 ? ` deel ${p + 1}` : ''}.${extFor(b.type)}`, { type: b.type })); } }, { cls: 'menu-item', ic: 'download' }) : null,
       native.isNative && m.file ? btn('Toon in Finder', () => { close(); native.call('revealFile', { name: m.file }); }, { cls: 'menu-item', ic: 'folder' }) : null,
@@ -907,6 +911,7 @@ function detailView(id) {
     h('div', { class: 'detail-top' }, h('a', { class: 'back', href: '#/' }, icon('back'), 'Opnames'), btn('', () => moreSheet(m), { cls: 'icon-btn', ic: 'more', title: 'Meer' })),
     titleInput,
     h('p', { class: 'muted small' }, [longDate(m.startedAt || m.createdAt), m.duration ? duration(m.duration) : '', sourceLabel(m.source)].filter(Boolean).join(' · ')),
+    agendaBox(m),
     statusBox,
     m.segments?.length ? h('div', { class: 'actions' },
       btn('Kopieer voor AI', () => copyForAI(m), { cls: 'btn primary', ic: 'copy' }),
@@ -918,7 +923,6 @@ function detailView(id) {
         h('i', { style: `background:${speakerColor(m, k)}` }),
         h('span', null, speakerLabel(m, k)),
         h('small', null, `${Math.round((talk[k] || 0) / total * 100)}%`))))) : null,
-    (m.people || []).length ? h('p', { class: 'muted small' }, icon('cal'), ` Uitgenodigd: ${(m.people || []).map((p) => p.name).join(', ')}`) : null,
     h('section', { class: 'card' }, h('h3', { class: 'label' }, icon('edit'), 'Notities'), notes),
     m.segments?.length ? h('section', { class: 'card transcript' },
       h('div', { class: 'row between' }, h('h3', { class: 'label' }, 'Transcript'),
@@ -930,6 +934,85 @@ function detailView(id) {
       h('span', { class: 'muted small' }, `/ ${clock(m.duration)}`),
       h('button', { type: 'button', class: 'chip', onclick: (e) => { const rates = [1, 1.25, 1.5, 2]; player.playbackRate = rates[(rates.indexOf(player.playbackRate) + 1) % rates.length]; e.target.textContent = `${player.playbackRate}×`; } }, `${player.playbackRate}×`),
       h('button', { type: 'button', class: 'chip', onclick: () => { player.currentTime = Math.max(0, player.currentTime - 15); } }, '−15s')) : null);
+}
+
+// ---------- linking a recording to an appointment ----------
+
+const isDefaultTitle = (t) => !t || /^(Opname|[\w.-]+-meeting) \d/.test(t);
+
+function eventLine(e) {
+  const guests = otherAttendees(e).map((a) => firstName(a.name)).filter(Boolean);
+  return [`${timeLabel(e.start)}–${timeLabel(e.end)}`, guests.length ? `met ${guests.slice(0, 4).join(', ')}${guests.length > 4 ? ` +${guests.length - 4}` : ''}` : ''].filter(Boolean).join(' · ');
+}
+
+async function linkEvent(m, e) {
+  if (isDefaultTitle(m.title) || (m.calendar && m.title === m.calendar.title)) m.title = e.title;
+  m.calendar = { id: e.id, title: e.title, start: e.start, end: e.end };
+  m.people = otherAttendees(e).map(({ name, email }) => ({ name, email }));
+  m.calendarDismissed = false;
+  await saveMeeting(m);
+  render();
+  toast(`Gekoppeld aan ${e.title}`);
+}
+
+async function unlinkEvent(m) {
+  if (m.calendar && m.title === m.calendar.title) m.title = defaultTitle(new Date(m.startedAt || m.createdAt));
+  m.calendar = null;
+  m.people = [];
+  m.calendarDismissed = true;
+  await saveMeeting(m);
+  render();
+  toast('Losgekoppeld van de agenda. Geef het gesprek hierboven een eigen titel.');
+}
+
+async function keepOwnTitle(m) {
+  m.calendarDismissed = true;
+  await saveMeeting(m, { sync: false });
+  render();
+  const input = $('.title-input');
+  if (input) { input.focus(); input.select(); }
+}
+
+// Linked: show it, with change and unlink. Not linked yet: ask once, after the recording.
+function agendaBox(m) {
+  if (m.calendar) {
+    const guests = (m.people || []).map((p) => p.name).filter(Boolean);
+    const when = m.calendar.start ? `${timeLabel(m.calendar.start)}–${timeLabel(m.calendar.end)}` : '';
+    return h('section', { class: 'card agenda' },
+      h('div', { class: 'agenda-row' }, icon('cal'),
+        h('div', { class: 'agenda-main' },
+          h('span', { class: 'muted small' }, 'Gekoppeld aan afspraak'),
+          h('strong', null, m.calendar.title),
+          h('span', { class: 'muted small' }, [when, guests.length ? `met ${guests.join(', ')}` : ''].filter(Boolean).join(' · '))),
+        h('div', { class: 'agenda-actions' },
+          btn('Wijzig', () => eventSheet(m), { cls: 'btn sm' }),
+          btn('Ontkoppel', () => unlinkEvent(m), { cls: 'btn sm' }))));
+  }
+  if (m.calendarDismissed || m.status === 'recording') return null;
+  const options = eventsAround(state.events, m.startedAt || m.createdAt, m.duration);
+  if (!options.length) return null;
+  return h('section', { class: 'card agenda' },
+    h('h3', { class: 'label' }, icon('cal'), 'Hoort deze opname bij een afspraak?'),
+    h('div', { class: 'stack' }, options.slice(0, 3).map((e) => h('button', { type: 'button', class: 'choice', onclick: () => linkEvent(m, e) },
+      h('strong', null, e.title), h('span', null, eventLine(e))))),
+    h('div', { class: 'row gap wrap' },
+      btn('Nee, eigen titel', () => keepOwnTitle(m), { cls: 'btn sm' }),
+      eventsOnDay(state.events, m.startedAt || m.createdAt).length > Math.min(3, options.length) ? btn('Andere afspraak', () => eventSheet(m), { cls: 'link-btn' }) : null));
+}
+
+function eventSheet(m) {
+  const at = m.startedAt || m.createdAt;
+  const near = eventsAround(state.events, at, m.duration, 120);
+  const day = eventsOnDay(state.events, at).filter((e) => !near.includes(e));
+  const list = [...near, ...day];
+  const close = sheet(`Afspraken op ${dayLabel(at).toLowerCase()}`,
+    list.length
+      ? h('div', { class: 'stack' }, list.map((e) => h('button', { type: 'button', class: `choice${m.calendar?.id === e.id ? ' on' : ''}`, onclick: () => { close(); linkEvent(m, e); } },
+        h('strong', null, e.title), h('span', null, eventLine(e)))))
+      : h('p', { class: 'muted' }, state.calError ? `Je agenda is niet bereikbaar: ${state.calError}` : 'Geen afspraken gevonden op deze dag. Notulist kijkt in je agenda van gisteren tot volgende week.'),
+    h('div', { class: 'row gap wrap' },
+      m.calendar ? btn('Ontkoppel', () => { close(); unlinkEvent(m); }, { cls: 'btn' }) : null,
+      btn('Geen afspraak, eigen titel', () => { close(); m.calendar ? unlinkEvent(m) : keepOwnTitle(m); }, { cls: 'btn' })));
 }
 
 function nameSuggestions(m, exclude = '') {

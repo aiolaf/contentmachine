@@ -90,3 +90,22 @@ export function eventAt(events, time = Date.now()) {
 export function otherAttendees(event) {
   return (event?.attendees || []).filter((a) => !a.self);
 }
+
+// Appointments that overlap a recording (with some slack): what it might belong to.
+// Closest start first.
+export function eventsAround(events, startIso, durationSec = 0, slackMin = 15) {
+  const start = Date.parse(startIso);
+  if (!Number.isFinite(start)) return [];
+  const end = start + Math.max(0, durationSec || 0) * 1000;
+  const slack = slackMin * 60 * 1000;
+  return events
+    .filter((e) => Date.parse(e.start) < end + slack && Date.parse(e.end) > start - slack)
+    .sort((a, b) => Math.abs(Date.parse(a.start) - start) - Math.abs(Date.parse(b.start) - start));
+}
+
+// All appointments on the same local day as a recording.
+export function eventsOnDay(events, iso) {
+  const d = new Date(iso);
+  const key = (x) => `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;
+  return events.filter((e) => key(new Date(e.start)) === key(d));
+}

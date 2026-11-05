@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { fromWords, fromElevenLabs, fromOpenAI, compact, shiftPart, speakerKeys, mergeSpeaker, samples } from '../notulist/lib/segments.js';
 import { llmText, toMarkdown, parseMarkdown, fileNameFor, speakerLabel, participants } from '../notulist/lib/format.js';
-import { normalizeEvents, eventAt, relevantEvents, appsScriptCode } from '../notulist/lib/calendar.js';
+import { normalizeEvents, eventAt, relevantEvents, appsScriptCode, eventsAround, eventsOnDay } from '../notulist/lib/calendar.js';
 import { encodeShare, decodeShare } from '../notulist/lib/share.js';
 import { clock, parseClock, safeFileName, nameFromEmail, fold } from '../notulist/lib/util.js';
 
@@ -186,4 +186,18 @@ test('share link round trip', async () => {
   assert.equal(back.segments[1].text, 'Dank je.\nZullen we beginnen?');
   assert.equal(back.speakers.speaker_0.name, 'Olaf');
   await assert.rejects(decodeShare('xabc'));
+});
+
+test('appointments around a recording', () => {
+  const events = normalizeEvents([
+    { id: 'a', title: 'Ochtend', start: '2026-11-05T08:00:00Z', end: '2026-11-05T08:30:00Z' },
+    { id: 'b', title: 'Weekstart', start: '2026-11-05T10:00:00Z', end: '2026-11-05T10:30:00Z' },
+    { id: 'c', title: 'Lunch', start: '2026-11-05T10:40:00Z', end: '2026-11-05T11:30:00Z' },
+    { id: 'd', title: 'Morgen', start: '2026-11-06T10:00:00Z', end: '2026-11-06T10:30:00Z' },
+  ]);
+  // Started a bit early, ran 35 minutes: both meetings it touches, closest start first.
+  assert.deepEqual(eventsAround(events, '2026-11-05T09:55:00Z', 35 * 60).map((e) => e.id), ['b', 'c']);
+  assert.deepEqual(eventsAround(events, '2026-11-05T13:00:00Z', 60).map((e) => e.id), []);
+  assert.deepEqual(eventsAround(events, 'geen datum', 60), []);
+  assert.deepEqual(eventsOnDay(events, '2026-11-05T12:00:00Z').map((e) => e.id), ['a', 'b', 'c']);
 });

@@ -340,6 +340,17 @@ input:focus, select:focus { border-color: var(--accent); }
 }
 .toast button { border: 0; background: none; color: var(--accent-ink); font-weight: 500; padding: 4px; }
 
+/* Appointment link */
+.agenda-row { display: flex; align-items: flex-start; gap: 12px; }
+.agenda-row > .ic { margin-top: 2px; color: var(--muted); }
+.agenda-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.agenda-main strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agenda-actions { display: flex; gap: 8px; flex: none; }
+@media (max-width: 480px) {
+  .agenda-row { flex-wrap: wrap; }
+  .agenda-actions { width: 100%; padding-left: 30px; }
+}
+
 /* With the player open, keep the toast and the last lines above it */
 body:has(#playbar) .toast { bottom: calc(144px + var(--safe-b)); }
 .view:has(#playbar) { padding-bottom: calc(168px + var(--safe-b)); }
