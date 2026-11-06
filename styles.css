@@ -571,6 +571,16 @@ mark { background: var(--marker); color: inherit; border-radius: 2px; padding: 0
 .video-title { margin: 0 0 10px; font-family: var(--serif); font-size: 18px; font-weight: 500; line-height: 1.35; }
 .video-preview { display: block; width: 100%; max-height: 62dvh; border-radius: 20px; background: #15151d; margin-bottom: 12px; object-fit: contain; }
 .video-result .btn.ghost { margin-top: 8px; }
+img.video-preview { height: auto; }
+.media-strip { display: flex; gap: 8px; overflow-x: auto; padding: 4px 4px 6px; margin: -4px -4px 12px; scroll-snap-type: x proximity; scrollbar-width: none; }
+.media-strip::-webkit-scrollbar { display: none; }
+.media-thumb { position: relative; flex: none; width: 64px; height: 80px; padding: 0; border: 0; border-radius: 14px; overflow: hidden; background: var(--muted-bg); cursor: pointer; scroll-snap-align: start; opacity: .62; transition: opacity .15s, transform .15s, box-shadow .15s; }
+.media-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.media-thumb.on { opacity: 1; box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--text); }
+.media-thumb:active { transform: scale(.96); }
+.media-badge { position: absolute; top: 5px; right: 5px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 999px; background: rgba(21, 21, 29, .72); color: #fff; }
+.media-badge svg { width: 12px; height: 12px; }
+.media-nr { position: absolute; left: 5px; bottom: 5px; min-width: 18px; padding: 1px 5px; border-radius: 999px; background: rgba(255, 255, 255, .9); color: var(--text); font-size: 11px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
 .dl { margin: 4px 0; }
 .dl-bar { height: 10px; border-radius: 999px; background: var(--muted-bg); overflow: hidden; }
 .dl-bar span { display: block; height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, var(--mint), var(--sky)); transition: width .2s ease-out; }

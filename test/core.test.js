@@ -652,7 +652,7 @@ test('vault: a capture ordered just before the app closed does not break the nex
 });
 
 test('video: finds the file behind posts on X, TikTok, Instagram and LinkedIn', async () => {
-  const { findVideos, videosInHtml } = await import('../lib/video.js');
+  const { findMedia, videosInHtml } = await import('../lib/video.js');
   const json = (o) => new Response(JSON.stringify(o), { headers: { 'content-type': 'application/json' } });
   const calls = [];
   const fake = async (url) => {
@@ -673,28 +673,89 @@ test('video: finds the file behind posts on X, TikTok, Instagram and LinkedIn', 
     return new Response('nee', { status: 404 });
   };
 
-  const x = await findVideos('Kijk https://x.com/karpathy/status/1886192184808149383?s=20', { fetchImpl: fake });
+  const x = await findMedia('Kijk https://x.com/karpathy/status/1886192184808149383?s=20', { fetchImpl: fake });
   assert.equal(x.platform, 'X');
-  assert.equal(x.videos[0].url, 'https://video.twimg.com/high.mp4', 'best mp4, not the playlist');
-  assert.equal(x.videos[0].bestand, 'x-1886192184808149383.mp4');
-  await assert.rejects(findVideos('https://x.com/a/status/111', { fetchImpl: fake }), /geen video/);
+  assert.equal(x.media[0].url, 'https://video.twimg.com/high.mp4', 'best mp4, not the playlist');
+  assert.equal(x.media[0].bestand, 'x-1886192184808149383.mp4');
+  await assert.rejects(findMedia('https://x.com/a/status/111', { fetchImpl: fake }), /geen video/);
 
-  const tt = await findVideos('https://www.tiktok.com/@nina/video/7300', { fetchImpl: fake });
-  assert.equal(tt.videos[0].url, 'https://www.tikwm.com/video/media/hdplay/7300.mp4');
+  const tt = await findMedia('https://www.tiktok.com/@nina/video/7300', { fetchImpl: fake });
+  assert.equal(tt.media[0].url, 'https://www.tikwm.com/video/media/hdplay/7300.mp4');
   assert.equal(tt.auteur, '@nina');
 
-  const ig = await findVideos('https://www.instagram.com/reel/Cx1/?igsh=abc', { fetchImpl: fake });
-  assert.equal(ig.videos[0].url, 'https://scontent.cdninstagram.com/v/reel.mp4?x=1&y=2');
+  const ig = await findMedia('https://www.instagram.com/reel/Cx1/?igsh=abc', { fetchImpl: fake });
+  assert.equal(ig.media[0].url, 'https://scontent.cdninstagram.com/v/reel.mp4?x=1&y=2');
   assert.ok(calls.some((u) => u.startsWith('https://r.jina.ai/https://www.instagram.com/p/Cx1/embed/captioned/')));
-  await assert.rejects(findVideos('https://www.instagram.com/p/Nope/', { fetchImpl: fake }), /openbare posts/);
+  await assert.rejects(findMedia('https://www.instagram.com/p/Nope/', { fetchImpl: fake }), /openbare posts/);
 
-  const li = await findVideos('https://www.linkedin.com/posts/olaf_ai-activity-7212345678901234567-abcd', { fetchImpl: fake });
-  assert.equal(li.videos[0].url, 'https://dms.licdn.com/hd.mp4', 'highest bitrate first');
-  assert.equal(li.videos[0].thumb, 'https://media.licdn.com/p.jpg');
+  const li = await findMedia('https://www.linkedin.com/posts/olaf_ai-activity-7212345678901234567-abcd', { fetchImpl: fake });
+  assert.equal(li.media[0].url, 'https://dms.licdn.com/hd.mp4', 'highest bitrate first');
+  assert.equal(li.media[0].thumb, 'https://media.licdn.com/p.jpg');
 
-  await assert.rejects(findVideos('https://example.org/blog', { fetchImpl: fake }), /werkt voor X, TikTok/);
-  await assert.rejects(findVideos('geen link', { fetchImpl: fake }), /Plak een link/);
+  await assert.rejects(findMedia('https://example.org/blog', { fetchImpl: fake }), /werkt voor X, TikTok/);
+  await assert.rejects(findMedia('geen link', { fetchImpl: fake }), /Plak een link/);
   assert.deepEqual(videosInHtml('<meta property="og:video" content="https://cdn.example.com/a.mp4"><video src="http://insecure/b.mp4">'), ['https://cdn.example.com/a.mp4']);
+});
+
+test('video: finds every photo and video of an Instagram post or carousel', async () => {
+  const { findMedia, postInHtml, photosInHtml } = await import('../lib/video.js');
+  const res = (o) => new Response(JSON.stringify(o), { headers: { 'content-type': 'application/json' } });
+  const res2 = (u) => [640, 1080].map((w) => ({ src: `https://scontent.cdninstagram.com/${u}_${w}.jpg?stp=dst-jpg&oe=1`, config_width: w, config_height: w }));
+  // As Instagram sends it: the post as JSON, slashes escaped, inside a string
+  // in a script call. The summary in "context" comes first.
+  const embed = (inner) => {
+    const text = JSON.stringify(inner).replace(/\//g, '\\/');
+    return `<html><body><img class="EmbeddedMediaImage" src="https://scontent.cdninstagram.com/cover.jpg"><script>requireLazy(["ServerJS"],function(S){var s=new S();s.handle({"require":[["PolarisEmbedSimple","init",[],[{"contextJSON":${JSON.stringify(text).replace(/\//g, '\\/')}}]]]});});</script></body></html>`;
+  };
+  const carousel = embed({
+    context: { shortcode: 'CAR1', id: '1', display_url: 'https://scontent.cdninstagram.com/cover.jpg', username: 'nina' },
+    gql_data: { shortcode_media: {
+      __typename: 'GraphSidecar', id: '1', shortcode: 'CAR1', display_url: 'https://scontent.cdninstagram.com/a_1080.jpg',
+      owner: { username: 'nina.ai' }, edge_media_to_caption: { edges: [{ node: { text: 'Vijf AI-tips voor je team' } }] },
+      edge_sidecar_to_children: { edges: [
+        { node: { __typename: 'GraphImage', id: '2', shortcode: 'S2', is_video: false, display_url: 'https://scontent.cdninstagram.com/a_1080.jpg', display_resources: res2('a'), dimensions: { width: 1080, height: 1350 } } },
+        { node: { __typename: 'GraphVideo', id: '3', shortcode: 'S3', is_video: true, display_url: 'https://scontent.cdninstagram.com/b.jpg', video_url: 'https://scontent.cdninstagram.com/b.mp4?x=1', video_duration: 12.4 } },
+        { node: { __typename: 'GraphVideo', id: '4', shortcode: 'S4', is_video: true, display_url: 'https://scontent.cdninstagram.com/d.jpg' } },
+        { node: { __typename: 'GraphImage', id: '5', shortcode: 'S5', is_video: false, display_url: 'https://scontent.cdninstagram.com/c.webp' } },
+      ] },
+    } },
+  });
+  const pages = {
+    CAR1: carousel,
+    // No post data, only the photo the page shows.
+    FOTO1: '<div class="Embed"><img class="EmbeddedMediaImage" alt="" src="https://scontent.cdninstagram.com/s640.jpg" srcset="https://scontent.cdninstagram.com/s640.jpg 640w,https://scontent.cdninstagram.com/s1080.jpg?a=1&amp;b=2 1080w"></div>',
+    REEL1: embed({ context: { shortcode: 'REEL1' }, gql_data: { shortcode_media: { __typename: 'GraphVideo', id: '9', shortcode: 'REEL1', is_video: true, display_url: 'https://scontent.cdninstagram.com/r.jpg', video_url: 'https://scontent.cdninstagram.com/r.mp4' } } }),
+    REEL2: '<img class="EmbeddedMediaImage" src="https://scontent.cdninstagram.com/only-cover.jpg">',
+    OUD1: `<script>window.__additionalDataLoaded('extra',{"shortcode_media":{"__typename":"GraphImage","id":"7","shortcode":"OUD1","display_url":"https:\\/\\/scontent.cdninstagram.com\\/oud.jpg"}});</script>`,
+  };
+  const fake = async (url) => {
+    const code = url.match(/instagram\.com\/p\/([^/]+)\/embed/)?.[1];
+    return pages[code] ? res({ data: { html: pages[code] } }) : new Response('nee', { status: 404 });
+  };
+
+  const car = await findMedia('https://www.instagram.com/p/CAR1/?igsh=xyz', { fetchImpl: fake });
+  assert.deepEqual(car.media.map((m) => m.soort), ['foto', 'video', 'foto'], 'every slide in order, a video without its file left out');
+  assert.equal(car.media[0].url, 'https://scontent.cdninstagram.com/a_1080.jpg?stp=dst-jpg&oe=1', 'widest version of the photo');
+  assert.equal(car.media[0].breedte, 1080);
+  assert.equal(car.media[1].url, 'https://scontent.cdninstagram.com/b.mp4?x=1');
+  assert.equal(car.media[1].thumb, 'https://scontent.cdninstagram.com/b.jpg');
+  assert.deepEqual(car.media.map((m) => m.bestand), ['instagram-CAR1-1.jpg', 'instagram-CAR1-2.mp4', 'instagram-CAR1-3.webp']);
+  assert.equal(car.auteur, '@nina.ai');
+  assert.equal(car.titel, 'Vijf AI-tips voor je team');
+  assert.equal(car.media[0].reserve, `https://wsrv.nl/?url=${encodeURIComponent(car.media[0].url)}&q=100`, 'a copy through the image proxy');
+  assert.match(car.media[1].mini, /^https:\/\/wsrv\.nl\/\?url=https%3A%2F%2Fscontent\.cdninstagram\.com%2Fb\.jpg&w=240$/);
+  assert.equal(car.media[1].reserve, undefined, 'videos have no proxy');
+
+  const foto = await findMedia('https://www.instagram.com/p/FOTO1/', { fetchImpl: fake });
+  assert.deepEqual(foto.media.map((m) => [m.soort, m.url, m.bestand]), [['foto', 'https://scontent.cdninstagram.com/s1080.jpg?a=1&b=2', 'instagram-FOTO1.jpg']]);
+
+  const reel = await findMedia('https://www.instagram.com/reel/REEL1/', { fetchImpl: fake });
+  assert.deepEqual(reel.media.map((m) => [m.soort, m.url]), [['video', 'https://scontent.cdninstagram.com/r.mp4']]);
+  await assert.rejects(findMedia('https://www.instagram.com/reel/REEL2/', { fetchImpl: fake }), /Geen video of foto/, 'a reel never falls back to its cover');
+
+  assert.equal(postInHtml(pages.OUD1, 'OUD1').media[0].url, 'https://scontent.cdninstagram.com/oud.jpg');
+  assert.equal(postInHtml('<p>niets</p>'), null);
+  assert.deepEqual(photosInHtml('<img class="Other" src="https://x/y.jpg"><img class="EmbeddedMediaImage" src="http://insecure/z.jpg">'), []);
 });
 
 test('video: the share-sheet shortcut opens the downloader with the link', async () => {

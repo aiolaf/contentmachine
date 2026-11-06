@@ -143,16 +143,18 @@ In Obsidian klik je op een #hashtag in dat bestand om alle items met die hashtag
 
 Video's van **X, TikTok, Instagram en LinkedIn** bewaar je op je iPhone of Mac, zonder de rare downloadsites.
 
-- **In de app:** op de Mac in de zijbalk (**Video downloaden**), op de iPhone via het plusje en **Video**. Bij elke post van die platforms staat ook een downloadknop.
+- **In de app:** op de Mac in de zijbalk (**Video en foto's**), op de iPhone via het plusje en **Video**. Bij elke post van die platforms staat ook een downloadknop.
 - **Vanuit het deelmenu:** onder Instellingen download je een tweede opdracht, **Videodownloader**. Deel een post, en de downloader opent met de video klaar. Er staat geen token in en hij werkt ook zonder gekoppelde vault.
 
 Je ziet de video eerst, dan download je hem met een voortgangsbalk. Op de iPhone kies je daarna **Bewaar video** (Foto's) of **Bewaar in Bestanden**; op de Mac komt hij in Downloads. Lukt direct downloaden niet, dan opent de app de video zodat je hem zelf bewaart.
+
+**Foto's en carrousels van Instagram.** Deel je een foto-post of carrousel, dan zie je alle slides in een stripje onder het voorbeeld, met een videotje erop als een slide een video is. **Download alles** haalt ze in een keer op; op de iPhone bewaar je ze dan samen in Foto's. Instagram geeft zijn foto's niet aan andere sites, dus die komen zo nodig via de gratis beeldproxy wsrv.nl. Krijgt Instagram de volledige postdata niet mee, dan zie je alleen de foto die de insluitpagina toont.
 
 | Platform | Hoe | Betrouwbaar |
 | --- | --- | --- |
 | X | fxtwitter (gratis API, de beste kwaliteit) | ja |
 | TikTok | tikwm (gratis API, zonder watermerk) | meestal |
-| Instagram | de openbare insluitpagina, via Jina Reader | alleen openbare posts, niet altijd |
+| Instagram | de openbare insluitpagina, via Jina Reader; foto's via de beeldproxy wsrv.nl | alleen openbare posts, niet altijd |
 | LinkedIn | de openbare insluitpagina, via Jina Reader | alleen openbare posts, niet altijd |
 
 Die diensten zien de link. Alleen voor eigen gebruik: wil je een video van een ander posten, vraag dan eerst toestemming.
