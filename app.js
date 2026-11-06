@@ -67,7 +67,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '6 nov 2026, 19:15';
+const VERSIE = '6 nov 2026, 19:45';
 // The Teleprompter lives in teleprompter/ on the same site; it shows a link back here.
 const TELEPROMPTER_URL = 'teleprompter/?van=contentmachine';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
@@ -961,7 +961,7 @@ function videoResultHtml(v) {
   }
   const poster = pick.voorbeeld || pick.thumb;
   const preview = pick.soort === 'foto'
-    ? `<img class="video-preview" src="${esc(pick.voorbeeld || pick.url)}" alt="${esc(`Foto ${v.keuze + 1}`)}" ${pick.breedte && pick.hoogte ? `width="${pick.breedte}" height="${pick.hoogte}"` : ''}>`
+    ? `<img class="video-preview" src="${esc(pick.voorbeeld || pick.thumb || pick.url)}" alt="${esc(`Foto ${v.keuze + 1}`)}" ${pick.breedte && pick.hoogte ? `width="${pick.breedte}" height="${pick.hoogte}"` : ''}>`
     : `<video class="video-preview" src="${esc(pick.url)}" ${poster ? `poster="${esc(poster)}"` : ''} controls playsinline preload="none"></video>`;
   const strip = many ? `<div class="media-strip" role="listbox" aria-label="Alle onderdelen van deze post">${info.media.map((m, n) => `
       <button class="media-thumb ${n === v.keuze ? 'on' : ''}" data-action="video-pick" data-v="${n}" role="option" aria-selected="${n === v.keuze}" aria-label="${esc(`${m.soort === 'foto' ? 'Foto' : 'Video'} ${n + 1}`)}">
@@ -993,7 +993,7 @@ function videoView() {
     <div class="panel video-help">
       <div class="platforms"><span class="pf ok">X</span><span class="pf ok">TikTok</span><span class="pf maybe">Instagram</span><span class="pf maybe">LinkedIn</span></div>
       <p class="small muted">X en TikTok gaan via gratis diensten (fxtwitter, tikwm). Instagram en LinkedIn lezen we van de openbare post via Jina Reader; dat lukt niet bij elke post. Die diensten zien de link.</p>
-      <p class="small muted">Bij Instagram werken ook foto-posts en carrousels: je krijgt alle slides en downloadt ze in een keer. Foto's van Instagram komen zo nodig via de gratis beeldproxy wsrv.nl, omdat Instagram ze niet aan andere sites geeft.</p>
+      <p class="small muted">Foto's werken ook: foto-posts op X, foto-slideshows op TikTok en carrousels op Instagram. Je krijgt alle slides en downloadt ze in een keer. Foto's komen zo nodig via de gratis beeldproxy wsrv.nl, omdat Instagram en TikTok ze niet aan andere sites geven.</p>
       <p class="small muted">Alleen voor eigen gebruik. Wil je een video of foto van een ander posten, vraag dan eerst toestemming.</p>
     </div>`;
 }
@@ -1420,7 +1420,7 @@ function settingsView() {
 
     <div class="panel">
       <h3>Video's downloaden vanuit je deelmenu</h3>
-      <p class="small muted">Een tweede opdracht, <b>Videodownloader</b>. Deel een post op X, TikTok, Instagram of LinkedIn en de downloader opent met de video klaar. Bij Instagram ook foto's en carrousels. Er staat geen token in.</p>
+      <p class="small muted">Een tweede opdracht, <b>Videodownloader</b>. Deel een post op X, TikTok, Instagram of LinkedIn en de downloader opent met de video klaar. Ook foto's, slideshows en carrousels. Er staat geen token in.</p>
       <ol class="steps small">
         <li>Download de opdracht op je Mac.</li>
         <li>Plak deze regel in <b>Terminal</b>:

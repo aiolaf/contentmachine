@@ -677,7 +677,7 @@ test('video: finds the file behind posts on X, TikTok, Instagram and LinkedIn', 
   assert.equal(x.platform, 'X');
   assert.equal(x.media[0].url, 'https://video.twimg.com/high.mp4', 'best mp4, not the playlist');
   assert.equal(x.media[0].bestand, 'x-1886192184808149383.mp4');
-  await assert.rejects(findMedia('https://x.com/a/status/111', { fetchImpl: fake }), /geen video/);
+  await assert.rejects(findMedia('https://x.com/a/status/111', { fetchImpl: fake }), /geen video of foto/);
 
   const tt = await findMedia('https://www.tiktok.com/@nina/video/7300', { fetchImpl: fake });
   assert.equal(tt.media[0].url, 'https://www.tikwm.com/video/media/hdplay/7300.mp4');
@@ -756,6 +756,45 @@ test('video: finds every photo and video of an Instagram post or carousel', asyn
   assert.equal(postInHtml(pages.OUD1, 'OUD1').media[0].url, 'https://scontent.cdninstagram.com/oud.jpg');
   assert.equal(postInHtml('<p>niets</p>'), null);
   assert.deepEqual(photosInHtml('<img class="Other" src="https://x/y.jpg"><img class="EmbeddedMediaImage" src="http://insecure/z.jpg">'), []);
+});
+
+test('video: photo posts on X and photo slideshows on TikTok', async () => {
+  const { findMedia } = await import('../lib/video.js');
+  const res = (o) => new Response(JSON.stringify(o), { headers: { 'content-type': 'application/json' } });
+  const fake = async (url) => {
+    if (url.startsWith('https://api.fxtwitter.com/status/500')) {
+      return res({ tweet: { text: 'Twee slides over agents', author: { screen_name: 'nina_ai' }, media: {
+        photos: [{ type: 'photo', url: 'https://pbs.twimg.com/media/AbC1.jpg', width: 1200, height: 1500 }, { type: 'photo', url: 'https://pbs.twimg.com/media/AbC2?format=png&name=small' }],
+      } } });
+    }
+    if (url.startsWith('https://api.fxtwitter.com/status/600')) {
+      return res({ tweet: { text: 'Gemengd', media: { all: [
+        { type: 'video', url: 'https://video.twimg.com/v.mp4', thumbnail_url: 'https://pbs.twimg.com/t.jpg', duration: 9 },
+        { type: 'photo', url: 'https://pbs.twimg.com/media/Zz9.jpg' },
+      ] }, quote: { media: { photos: [{ type: 'photo', url: 'https://pbs.twimg.com/media/Qq1.jpg' }] } } } });
+    }
+    if (url.startsWith('https://www.tikwm.com/api/')) {
+      return res({ code: 0, data: { id: '7400', title: 'Drie tips', play: 'https://sf16.tiktokcdn.com/music.mp3', cover: 'https://p16.tiktokcdn.com/c.jpeg',
+        images: ['https://p16-sign.tiktokcdn.com/obj/a~tplv-photomode-image.jpeg?x=1', 'https://p16-sign.tiktokcdn.com/obj/b~tplv-photomode-image.webp'], author: { unique_id: 'nina' } } });
+    }
+    return new Response('nee', { status: 404 });
+  };
+
+  const x = await findMedia('https://x.com/nina_ai/status/500', { fetchImpl: fake });
+  assert.deepEqual(x.media.map((m) => [m.soort, m.url, m.bestand]), [
+    ['foto', 'https://pbs.twimg.com/media/AbC1?format=jpg&name=orig', 'x-500-1.jpg'],
+    ['foto', 'https://pbs.twimg.com/media/AbC2?format=png&name=orig', 'x-500-2.png'],
+  ], 'the original size of every photo');
+  assert.equal(x.media[0].mini, 'https://pbs.twimg.com/media/AbC1?format=jpg&name=small');
+  assert.equal(x.media[0].breedte, 1200);
+  assert.match(x.media[0].reserve, /^https:\/\/wsrv\.nl\/\?url=/);
+
+  const mixed = await findMedia('https://x.com/a/status/600', { fetchImpl: fake });
+  assert.deepEqual(mixed.media.map((m) => `${m.soort} ${m.bestand}`), ['video x-600-1.mp4', 'foto x-600-2.jpg', 'foto x-600-3.jpg'], 'in the order of the post, the quoted post last');
+
+  const tt = await findMedia('https://www.tiktok.com/@nina/photo/7400', { fetchImpl: fake });
+  assert.deepEqual(tt.media.map((m) => `${m.soort} ${m.bestand}`), ['foto tiktok-7400-1.jpg', 'foto tiktok-7400-2.webp'], 'the photos, not the music');
+  assert.match(tt.media[0].mini, /^https:\/\/wsrv\.nl\/\?url=https%3A%2F%2Fp16-sign\.tiktokcdn\.com.*&w=240$/);
 });
 
 test('video: the share-sheet shortcut opens the downloader with the link', async () => {

@@ -141,19 +141,19 @@ In Obsidian klik je op een #hashtag in dat bestand om alle items met die hashtag
 
 ## Video downloaden
 
-Video's van **X, TikTok, Instagram en LinkedIn** bewaar je op je iPhone of Mac, zonder de rare downloadsites.
+Video's van **X, TikTok, Instagram en LinkedIn** bewaar je op je iPhone of Mac, zonder de rare downloadsites. Foto's ook: van X, TikTok en Instagram.
 
 - **In de app:** op de Mac in de zijbalk (**Video en foto's**), op de iPhone via het plusje en **Video**. Bij elke post van die platforms staat ook een downloadknop.
 - **Vanuit het deelmenu:** onder Instellingen download je een tweede opdracht, **Videodownloader**. Deel een post, en de downloader opent met de video klaar. Er staat geen token in en hij werkt ook zonder gekoppelde vault.
 
 Je ziet de video eerst, dan download je hem met een voortgangsbalk. Op de iPhone kies je daarna **Bewaar video** (Foto's) of **Bewaar in Bestanden**; op de Mac komt hij in Downloads. Lukt direct downloaden niet, dan opent de app de video zodat je hem zelf bewaart.
 
-**Foto's en carrousels van Instagram.** Deel je een foto-post of carrousel, dan zie je alle slides in een stripje onder het voorbeeld, met een videotje erop als een slide een video is. **Download alles** haalt ze in een keer op; op de iPhone bewaar je ze dan samen in Foto's. Instagram geeft zijn foto's niet aan andere sites, dus die komen zo nodig via de gratis beeldproxy wsrv.nl. Krijgt Instagram de volledige postdata niet mee, dan zie je alleen de foto die de insluitpagina toont.
+**Foto's, slideshows en carrousels.** Deel je een foto-post op X, een foto-slideshow op TikTok of een carrousel op Instagram, dan zie je alle slides in een stripje onder het voorbeeld, met een videotje erop als een slide een video is. **Download alles** haalt ze in een keer op; op de iPhone bewaar je ze dan samen in Foto's. Foto's van X komen in de originele grootte. Instagram en TikTok geven hun foto's niet aan andere sites, dus die komen zo nodig via de gratis beeldproxy wsrv.nl. Krijgt Instagram de volledige postdata niet mee, dan zie je alleen de foto die de insluitpagina toont.
 
 | Platform | Hoe | Betrouwbaar |
 | --- | --- | --- |
 | X | fxtwitter (gratis API, de beste kwaliteit) | ja |
-| TikTok | tikwm (gratis API, zonder watermerk) | meestal |
+| TikTok | tikwm (gratis API, zonder watermerk; slideshows als losse foto's) | meestal |
 | Instagram | de openbare insluitpagina, via Jina Reader; foto's via de beeldproxy wsrv.nl | alleen openbare posts, niet altijd |
 | LinkedIn | de openbare insluitpagina, via Jina Reader | alleen openbare posts, niet altijd |
 
@@ -311,7 +311,7 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | `lib/highlights.js` | markeringen met notities |
 | `lib/review.js` | Vandaag: dagelijkse herhaling |
 | `lib/content.js` | content-archief: onderwerpen, statistiek, eerder gemaakt |
-| `lib/video.js` | videobestand vinden achter posts op X, TikTok, Instagram en LinkedIn |
+| `lib/video.js` | video- en fotobestanden vinden achter posts op X, TikTok, Instagram en LinkedIn |
 | `lib/prompts.js` | prompt-generator |
 | `lib/haiku.js` | optionele Claude Haiku-stap |
 | `lib/frontmatter.js` | YAML-eigenschappen lezen en schrijven |
