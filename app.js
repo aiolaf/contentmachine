@@ -5,7 +5,8 @@ import { Vault } from './lib/vault.js';
 import { processCapture, processInbox, backfillPreviews } from './lib/pipeline.js';
 import { embedFor } from './lib/embeds.js';
 import { buildShortcut, buildVideoShortcut, inboxApiUrl, SIGN_COMMAND, signCommand } from './lib/shortcut.js';
-import { findMedia } from './lib/video.js';
+import { findMedia, cobaltLink, ytdlpCommand, YT_FORMATEN } from './lib/video.js';
+import { youtubeId } from './lib/capture.js';
 import {
   parseBundles, stringifyBundles, autoBundle, bundleOf, bundlesFor, setFolderBundles, renameFolderInBundles, OTHER,
 } from './lib/bundles.js';
@@ -69,7 +70,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '8 nov 2026, 11:00';
+const VERSIE = '8 nov 2026, 18:15';
 // The Teleprompter lives in teleprompter/ on the same site; it shows a link back here.
 const TELEPROMPTER_URL = 'teleprompter/?van=contentmachine';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
@@ -105,7 +106,7 @@ const safeStorage = (() => {
   }
 })();
 
-const DEFAULT_CFG = { modus: '', owner: '', repo: '', branch: 'main', map: 'Contentmachine', token: '', reader: true, previews: true, haiku: false, anthropicKey: '' };
+const DEFAULT_CFG = { modus: '', owner: '', repo: '', branch: 'main', map: 'Contentmachine', token: '', reader: true, previews: true, haiku: false, anthropicKey: '', cobaltUrl: '', cobaltKey: '' };
 
 const S = {
   cfg: { ...DEFAULT_CFG, ...local.get('cm_config', {}) },
@@ -1030,9 +1031,9 @@ function vandaagView() {
 }
 
 // ---------- video downloader ----------
-const VIDEO_TYPES = ['tweet', 'tiktok', 'instagram', 'threads', 'linkedin'];
+const VIDEO_TYPES = ['tweet', 'tiktok', 'instagram', 'threads', 'linkedin', 'youtube'];
 const emptyDl = () => ({ staat: 'rust', loaded: 0, total: 0, n: 0, van: 1, files: [], mislukt: 0 });
-const emptyVideo = (invoer = '') => ({ invoer, staat: 'leeg', fout: '', info: null, keuze: 0, dl: emptyDl() });
+const emptyVideo = (invoer = '') => ({ invoer, staat: 'leeg', fout: '', info: null, keuze: 0, yKeuze: null, dl: emptyDl() });
 const mb = (n) => `${(n / 1048576).toLocaleString('nl-NL', { maximumFractionDigits: 1 })} MB`;
 const duration = (sec) => (sec ? `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}` : '');
 // iPhone: the share sheet saves to Photos or Files. Mac: straight to Downloads.
@@ -1046,7 +1047,78 @@ function telling(media) {
   return [f ? `${f} foto${f === 1 ? '' : "'s"}` : '', v ? `${v} video${v === 1 ? '' : "'s"}` : ''].filter(Boolean).join(' en ');
 }
 
+const progressHtml = () => '<div class="dl"><div class="dl-bar"><span style="width:0%"></span></div><p class="small muted dl-text"></p></div>';
+
+// Downloaded: the share sheet on the iPhone, Downloads on the Mac.
+function doneHtml(dl, mis = '') {
+  const files = dl.files;
+  const size = mb(files.reduce((t, f) => t + f.size, 0));
+  const wat = files.length > 1 ? `${files.length} bestanden` : files[0].name;
+  return dl.delen
+    ? `<button class="btn primary block" data-action="video-save">${icon('download')}Bewaar in Foto's of Bestanden</button><p class="small muted">Klaar, ${files.length > 1 ? `${files.length} bestanden, ` : ''}${size}. Kies daarna <b>Bewaar</b>.${mis}</p>`
+    : `<p class="small"><b>Klaar.</b> ${esc(wat)} ${files.length > 1 ? 'staan' : 'staat'} in je Downloads (${size}).${mis}</p><button class="btn" data-action="video-save">${icon('download')}Nog een keer opslaan</button>`;
+}
+
+// "37 MB", "ca. 9,2 MB" or "ca. 2,6 MB per minuut".
+function formaatMaat(f, duur) {
+  if (f.grootte) return `${f.schatting ? 'ca. ' : ''}${mb(f.grootte)}`;
+  if (f.perMin && duur) return `ca. ${mb((f.perMin * 1048576 * duur) / 60)}`;
+  if (f.perMin) return `ca. ${f.perMin.toLocaleString('nl-NL')} MB per minuut`;
+  return '';
+}
+
+// The qualities on offer; with no server, the yt-dlp sizes.
+const ytList = (y) => (y.formaten.length ? y.formaten : YT_FORMATEN);
+
+// The chosen quality; 360p to start with, the smallest video otherwise.
+function ytChoice(v) {
+  const list = ytList(v.info.youtube);
+  if (v.yKeuze !== null && list[v.yKeuze]) return v.yKeuze;
+  const i = list.findIndex((f) => f.label === '360p');
+  return i >= 0 ? i : Math.max(0, list.findIndex((f) => f.soort === 'video'));
+}
+
+function youtubeResultHtml(v) {
+  const info = v.info;
+  const y = info.youtube;
+  const n = ytChoice(v);
+  const f = ytList(y)[n];
+  const dl = v.dl;
+  let action = '';
+  if (y.formaten.length) {
+    const maat = formaatMaat(f, y.duur);
+    action = `<button class="btn primary block" data-action="yt-download">${icon('download')}Download ${f.soort === 'audio' ? 'alleen geluid' : f.label}${maat ? ` (${esc(maat)})` : ''}</button>`;
+    if (dl.staat === 'laden') action = progressHtml();
+    else if (dl.staat === 'klaar') action = doneHtml(dl);
+    else if (dl.staat === 'fout') {
+      action = `<div class="panel" style="box-shadow:none;background:var(--bg);margin:0">
+        <b>Downloaden lukte niet.</b>
+        <p class="small muted">${esc(dl.fout || 'De server gaf het bestand niet door.')} Probeer een andere kwaliteit, of gebruik yt-dlp hieronder.</p>
+        ${f.url ? `<a class="btn" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${icon('external')}Open het bestand</a>` : ''}
+      </div>`;
+    }
+  }
+  const cmd = ytdlpCommand(y.id, f || { soort: 'video', hoogte: 360 });
+  return `<div class="panel video-result">
+    <div class="card-top"><span class="type">YouTube</span>${info.auteur ? `<span>${esc(info.auteur)}</span>` : ''}${duration(y.duur) ? `<span>${duration(y.duur)}</span>` : ''}</div>
+    ${info.titel ? `<p class="video-title">${esc(info.titel)}</p>` : ''}
+    <a class="yt-thumb" href="${esc(y.link)}" target="_blank" rel="noopener"><img class="video-preview" src="${esc(y.thumb)}" alt="" referrerpolicy="no-referrer"></a>
+    ${y.formaten.length ? '' : `<div class="panel error-panel"><b>Geen server gaf deze video</b><p class="small">De openbare YouTube-servers zijn nu niet bereikbaar of worden door YouTube geblokkeerd. Probeer het later nog eens, stel een eigen Cobalt-server in onder Instellingen, of gebruik yt-dlp op je Mac.</p></div>`}
+    <div class="field"><label>Kwaliteit${y.formaten.length ? '' : ' voor yt-dlp'}</label>
+      <div class="quality-list" role="radiogroup" aria-label="Kwaliteit">${ytList(y).map((x, i) => `<button role="radio" aria-checked="${i === n}" class="q ${i === n ? 'on' : ''}" data-action="yt-pick" data-v="${i}">
+        <b>${esc(x.label)}</b><small>${esc(formaatMaat(x, y.duur) || x.ext || '')}</small></button>`).join('')}</div></div>
+    ${y.formaten.length ? `${action}
+      <p class="small muted yt-bron">Via ${esc(y.bron)}${y.bron === 'Cobalt' ? ', je eigen server' : ', een openbare server'}.${y.bron === 'Cobalt' ? '' : ' Kleiner dan 360p met beeld kan via een eigen Cobalt-server (Instellingen) of met yt-dlp.'}</p>` : ''}
+    <details class="ytdlp" ${y.formaten.length ? '' : 'open'}><summary>Op je Mac met yt-dlp, werkt altijd</summary>
+      <p class="small muted">Eenmalig in Terminal: <code>brew install yt-dlp ffmpeg</code> (met Homebrew). Daarna deze regel${f ? ` voor ${esc(f.soort === 'audio' ? 'alleen geluid' : f.label)}` : ''}; het bestand komt in Downloads.</p>
+      <div class="copyline"><code>${esc(cmd)}</code><button class="icon-btn" data-action="copy" data-v="${esc(cmd)}" aria-label="Kopieer">${icon('copy')}</button></div>
+    </details>
+    ${S.ready && !S.items.some((i) => youtubeId(i.url) === y.id) ? `<button class="btn ghost" data-action="video-vault">${icon('plus')}Bewaar de video ook in je vault</button>` : ''}
+  </div>`;
+}
+
 function videoResultHtml(v) {
+  if (v.info.youtube) return youtubeResultHtml(v);
   const info = v.info;
   const pick = info.media[v.keuze];
   const many = info.media.length > 1;
@@ -1057,14 +1129,9 @@ function videoResultHtml(v) {
       <button class="btn block" data-action="video-download" style="margin-top:8px">${icon('download')}Alleen deze ${soortNaam(pick)} (${v.keuze + 1} van ${info.media.length})</button>`
     : `<button class="btn primary block" data-action="video-download">${icon('download')}Download ${soortNaam(pick)}${pick.grootte ? ` (${mb(pick.grootte)})` : ''}</button>`;
   if (dl.staat === 'laden') {
-    action = `<div class="dl"><div class="dl-bar"><span style="width:0%"></span></div><p class="small muted dl-text"></p></div>`;
+    action = progressHtml();
   } else if (dl.staat === 'klaar') {
-    const size = mb(files.reduce((t, f) => t + f.size, 0));
-    const wat = files.length > 1 ? `${files.length} bestanden` : files[0].name;
-    const mis = dl.mislukt ? ` ${dl.mislukt === 1 ? '1 bestand lukte' : `${dl.mislukt} bestanden lukten`} niet. Kies ${dl.mislukt === 1 ? 'dat' : 'die'} in het stripje en probeer het los.` : '';
-    action = dl.delen
-      ? `<button class="btn primary block" data-action="video-save">${icon('download')}Bewaar in Foto's of Bestanden</button><p class="small muted">Klaar, ${files.length > 1 ? `${files.length} bestanden, ` : ''}${size}. Kies daarna <b>Bewaar</b>.${mis}</p>`
-      : `<p class="small"><b>Klaar.</b> ${esc(wat)} ${files.length > 1 ? 'staan' : 'staat'} in je Downloads (${size}).${mis}</p><button class="btn" data-action="video-save">${icon('download')}Nog een keer opslaan</button>`;
+    action = doneHtml(dl, dl.mislukt ? ` ${dl.mislukt === 1 ? '1 bestand lukte' : `${dl.mislukt} bestanden lukten`} niet. Kies ${dl.mislukt === 1 ? 'dat' : 'die'} in het stripje en probeer het los.` : '');
   } else if (dl.staat === 'fout') {
     const naam = soortNaam(pick);
     action = `<div class="panel" style="box-shadow:none;background:var(--bg);margin:0">
@@ -1096,18 +1163,19 @@ function videoResultHtml(v) {
 function videoView() {
   const v = S.video || (S.video = emptyVideo());
   const busy = v.staat === 'zoeken';
-  return `<div class="topbar"><div style="flex:1;min-width:0"><span class="dateline">X, TikTok, Instagram, Threads, LinkedIn</span><h1>Video en foto's downloaden</h1></div></div>
+  return `<div class="topbar"><div style="flex:1;min-width:0"><span class="dateline">X, TikTok, Instagram, Threads, LinkedIn, YouTube</span><h1>Video en foto's downloaden</h1></div></div>
     <div class="video-input">
-      <input id="video-url" type="url" inputmode="url" placeholder="Plak een link naar een post" value="${esc(v.invoer)}" autocapitalize="off" autocomplete="off">
+      <input id="video-url" type="url" inputmode="url" placeholder="Plak een link naar een post of video" value="${esc(v.invoer)}" autocapitalize="off" autocomplete="off">
       <button class="btn" data-action="video-paste">${icon('copy')}Plak</button>
     </div>
     <button class="gen block ${busy ? 'bezig' : ''}" data-action="video-find" ${busy ? 'aria-busy="true"' : ''}><span class="gen-ring" aria-hidden="true"></span><span class="gen-inner">${icon('search')}<span class="gen-text">${busy ? 'Zoeken...' : 'Zoek video of foto\'s'}</span></span></button>
     ${v.staat === 'fout' ? `<div class="panel error-panel"><b>Niet gelukt</b><p class="small">${esc(v.fout)}</p></div>` : ''}
     ${v.info ? videoResultHtml(v) : ''}
     <div class="panel video-help">
-      <div class="platforms"><span class="pf ok">X</span><span class="pf ok">TikTok</span><span class="pf maybe">Instagram</span><span class="pf maybe">Threads</span><span class="pf maybe">LinkedIn</span></div>
+      <div class="platforms"><span class="pf ok">X</span><span class="pf ok">TikTok</span><span class="pf maybe">Instagram</span><span class="pf maybe">Threads</span><span class="pf maybe">LinkedIn</span><span class="pf maybe">YouTube</span></div>
       <p class="small muted">X en TikTok gaan via gratis diensten (fxtwitter, tikwm). Instagram, Threads en LinkedIn lezen we van de openbare post via Jina Reader; dat lukt niet bij elke post. Die diensten zien de link.</p>
       <p class="small muted">Foto's werken ook: foto-posts op X en Threads, foto-slideshows op TikTok en carrousels op Instagram. Je krijgt alle slides en downloadt ze in een keer. Foto's komen zo nodig via de gratis beeldproxy wsrv.nl, omdat Instagram, Threads en TikTok ze niet aan andere sites geven.</p>
+      <p class="small muted">YouTube: je kiest zelf de kwaliteit, ook alleen geluid. Openbare Piped- of Invidious-servers geven 360p en alleen geluid, maar zijn niet altijd bereikbaar. Met een eigen Cobalt-server (Instellingen) krijg je elke kwaliteit, ook 144p. Op je Mac werkt yt-dlp altijd.</p>
       <p class="small muted">Alleen voor eigen gebruik. Wil je een video of foto van een ander posten, vraag dan eerst toestemming.</p>
     </div>`;
 }
@@ -1127,7 +1195,8 @@ async function findVideo() {
   S.video = { ...emptyVideo(invoer), staat: 'zoeken' };
   render();
   try {
-    S.video = { ...S.video, staat: 'gevonden', info: await findMedia(invoer) };
+    const cobalt = S.cfg.cobaltUrl ? { url: S.cfg.cobaltUrl, key: S.cfg.cobaltKey } : null;
+    S.video = { ...S.video, staat: 'gevonden', info: await findMedia(invoer, { cobalt }) };
   } catch (e) {
     S.video = { ...S.video, staat: 'fout', fout: e.message };
   }
@@ -1167,12 +1236,45 @@ async function fetchMedia(m, onProgress) {
     const name = EXT[type] ? m.bestand.replace(/\.[a-z0-9]+$/i, `.${EXT[type]}`) : m.bestand;
     return new File(chunks, name, { type });
   }
+  if (m.soort === 'audio') {
+    const type = /^audio\//.test(header) ? header : 'audio/mp4';
+    const ext = { 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/webm': 'webm', 'audio/ogg': 'ogg' }[type];
+    return new File(chunks, ext ? m.bestand.replace(/\.[a-z0-9]+$/i, `.${ext}`) : m.bestand, { type });
+  }
   return new File(chunks, m.bestand, { type: /^video\//.test(header) ? header : 'video/mp4' });
 }
 
-async function downloadVideo(alles) {
+function downloadVideo(alles) {
   const v = S.video;
-  const list = alles ? v.info.media : [v.info.media[v.keuze]];
+  return downloadList(alles ? v.info.media : [v.info.media[v.keuze]]);
+}
+
+// A YouTube quality: straight from Piped or Invidious, or first a fresh link
+// from your Cobalt server.
+async function downloadYouTube() {
+  const v = S.video;
+  const y = v.info.youtube;
+  const f = y.formaten[ytChoice(v)];
+  if (!f || !y.formaten.length) return;
+  v.dl = { ...emptyDl(), staat: 'laden', total: f.grootte || 0 };
+  render();
+  paintProgress();
+  let url = f.url;
+  if (f.cobalt) {
+    try {
+      url = await cobaltLink({ url: S.cfg.cobaltUrl, key: S.cfg.cobaltKey }, y.link, f);
+    } catch (e) {
+      v.dl = { ...emptyDl(), staat: 'fout', fout: e.message };
+      render();
+      return;
+    }
+  }
+  const naam = f.soort === 'audio' ? `geluid.${f.ext || 'm4a'}` : `${f.label}.${f.ext || 'mp4'}`;
+  await downloadList([{ soort: f.soort, url, grootte: f.grootte, bestand: `youtube-${y.id}-${naam}` }]);
+}
+
+async function downloadList(list) {
+  const v = S.video;
   v.dl = { ...emptyDl(), staat: 'laden', van: list.length, total: list[0].grootte || 0 };
   render();
   paintProgress();
@@ -1191,7 +1293,7 @@ async function downloadVideo(alles) {
     }
   }
   if (!files.length) {
-    v.dl = { ...emptyDl(), staat: 'fout' };
+    v.dl = { ...emptyDl(), staat: 'fout', fout: v.info.youtube ? 'De server gaf het bestand niet door.' : '' };
     render();
     return;
   }
@@ -1557,6 +1659,11 @@ function settingsView() {
         <li>Kies <b>Voeg opdracht toe</b>. Via iCloud staat hij ook op je iPhone.</li>
       </ol>
       <div class="make-row"><button class="btn primary" data-action="download-video-shortcut">${icon('download')}Download Videodownloader</button><button class="btn" data-action="nav" data-href="#/video">Open de downloader</button></div>
+      <details class="cobalt-set" ${c.cobaltUrl ? 'open' : ''}><summary>YouTube in elke kwaliteit: eigen Cobalt-server (optioneel)</summary>
+        <p class="small muted">Zonder eigen server haalt de app YouTube via openbare servers: 360p en alleen geluid, en niet altijd bereikbaar. <a href="https://github.com/imputnet/cobalt" target="_blank" rel="noopener">Cobalt</a> is gratis software die je op een kleine server zet; dan krijg je elke kwaliteit, ook 144p en 240p. Het adres en de sleutel blijven op dit apparaat en gaan alleen naar die server.</p>
+        <div class="field"><label for="cfg-cobalt-url">Adres</label><input id="cfg-cobalt-url" type="url" inputmode="url" value="${esc(c.cobaltUrl)}" placeholder="https://cobalt.jouwdomein.nl" autocomplete="off"></div>
+        <div class="field"><label for="cfg-cobalt-key">API-sleutel, als je server die vraagt</label><input id="cfg-cobalt-key" type="password" value="${esc(c.cobaltKey)}" autocomplete="off"></div>
+      </details>
     </div>
 
     ${c.modus === 'lokaal' ? '' : `<div class="panel">
@@ -2628,6 +2735,12 @@ const actions = {
     render();
   },
   'video-download': (el) => downloadVideo(el.dataset.v === 'alles'),
+  'yt-download': () => downloadYouTube(),
+  'yt-pick': (el) => {
+    S.video.yKeuze = Number(el.dataset.v);
+    S.video.dl = emptyDl();
+    render();
+  },
   'video-save': () => saveVideoFile(),
   'video-vault': async () => {
     try {
@@ -2772,6 +2885,20 @@ document.addEventListener('change', async (ev) => {
     }
     const m = await patchItem(S.detail.id, { map });
     if (m) toast(`Verplaatst naar ${m.map}. De machine leert hiervan.`);
+  } else if (t.id === 'cfg-cobalt-url') {
+    const v = t.value.trim().replace(/\/+$/, '');
+    if (v && !/^https:\/\/[^\s/]+/.test(v)) {
+      toast('Het adres moet met https:// beginnen', { soort: 'fout' });
+      t.value = S.cfg.cobaltUrl;
+      return;
+    }
+    S.cfg.cobaltUrl = v;
+    local.set('cm_config', S.cfg);
+    toast(v ? 'Cobalt-server bewaard' : 'Cobalt-server weggehaald', { soort: 'ok' });
+  } else if (t.id === 'cfg-cobalt-key') {
+    S.cfg.cobaltKey = t.value.trim();
+    local.set('cm_config', S.cfg);
+    toast('Sleutel bewaard', { soort: 'ok' });
   } else if (t.id === 'cfg-key') {
     S.cfg.anthropicKey = t.value.trim();
     local.set('cm_config', S.cfg);

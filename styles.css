@@ -670,3 +670,18 @@ img.video-preview { height: auto; }
 .tech.on { border-color: var(--violet); background: #f4f2ff; }
 .tech.on .tech-check { background: var(--violet); border-color: var(--violet); color: #fff; }
 #lessen { field-sizing: content; min-height: 110px; max-height: 60vh; }
+
+/* ---------- YouTube: choose a quality ---------- */
+.yt-thumb { display: block; }
+.quality-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.quality-list .q { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; border: 1px solid var(--border); background: var(--card); color: var(--text); padding: 10px 12px; border-radius: 16px; font: inherit; text-align: left; cursor: pointer; transition: background-color .15s, border-color .15s, transform .12s; }
+.quality-list .q:active { transform: scale(.97); }
+.quality-list .q b { font-size: 15px; }
+.quality-list .q small { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.quality-list .q.on { background: var(--text); border-color: var(--text); color: #fff; }
+.quality-list .q.on small { color: rgba(255, 255, 255, .72); }
+.yt-bron { margin: 8px 0 0; }
+.ytdlp, .cobalt-set { margin-top: 12px; border-radius: 16px; background: var(--bg-2); padding: 10px 14px; }
+.ytdlp summary, .cobalt-set summary { cursor: pointer; font-weight: 600; font-size: 14.5px; }
+.ytdlp[open] summary, .cobalt-set[open] summary { margin-bottom: 6px; }
+.ytdlp code { font-size: 12.5px; }

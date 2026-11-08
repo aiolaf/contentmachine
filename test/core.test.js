@@ -932,6 +932,77 @@ test('video: photos and videos of a Threads post, not those of its replies', asy
   await assert.rejects(findMedia('https://www.threads.com/@x/post/WEG1', { fetchImpl: fake }), /Threads gaf geen antwoord/);
 });
 
+test('youtube: a menu of qualities from Piped or Invidious, every size from your own Cobalt', async () => {
+  const { findMedia, cobaltLink, ytdlpCommand, YT_FORMATEN } = await import('../lib/video.js');
+  const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
+  const calls = [];
+  const piped = (u) => {
+    if (u === 'https://piped-instances.kavin.rocks/') return json([{ api_url: 'https://p-traag.example', uptime_24h: 50 }, { api_url: 'https://p-goed.example', uptime_24h: 99 }, { api_url: 'http://onveilig.example', uptime_24h: 100 }]);
+    if (u.startsWith('https://p-goed.example/streams/dQw4w9WgXcQ')) {
+      return json({ title: 'How I tell stories', uploader: 'Kallaway', duration: 600, thumbnailUrl: 'https://pipedproxy.example/vi/t.jpg',
+        videoStreams: [
+          { url: 'https://pipedproxy.example/360.webm', quality: '360p', mimeType: 'video/webm', videoOnly: false, bitrate: 500000 },
+          { url: 'https://pipedproxy.example/360.mp4', quality: '360p', mimeType: 'video/mp4', videoOnly: false, contentLength: 37000000 },
+          { url: 'https://pipedproxy.example/1080.mp4', quality: '1080p', mimeType: 'video/mp4', videoOnly: true },
+        ],
+        audioStreams: [
+          { url: 'https://pipedproxy.example/a128.m4a', mimeType: 'audio/mp4', bitrate: 128000 },
+          { url: 'https://pipedproxy.example/a50.webm', mimeType: 'audio/webm', bitrate: 50000 },
+        ] });
+    }
+    return null;
+  };
+  const fake = async (u, init = {}) => {
+    calls.push([u, init.method || 'GET']);
+    const r = piped(u);
+    if (r) return r;
+    if (u.startsWith('https://api.invidious.io/')) return json([['inv.example', { api: true, cors: true, type: 'https', uri: 'https://inv.example' }], ['geen-api.example', { api: false, cors: true, type: 'https', uri: 'https://geen-api.example' }]]);
+    if (u.startsWith('https://noembed.com/')) return json({ title: 'How I tell stories', author_name: 'Kallaway' });
+    return new Response('nee', { status: 503 });
+  };
+
+  const yt = await findMedia('Kijk https://youtu.be/dQw4w9WgXcQ?si=abc', { fetchImpl: fake });
+  assert.equal(yt.platform, 'YouTube');
+  assert.equal(yt.youtube.bron, 'Piped');
+  assert.equal(yt.titel, 'How I tell stories');
+  assert.deepEqual(yt.youtube.formaten.map((f) => [f.label, f.ext, f.grootte, Boolean(f.schatting)]), [
+    ['360p', 'mp4', 37000000, false],
+    ['Alleen geluid', 'm4a', 9600000, true],
+    ['Alleen geluid, extra klein', 'webm', 3750000, true],
+  ], 'mp4 before webm, no video without sound, sizes from the bitrate when missing');
+  assert.ok(!calls.some(([u]) => u.startsWith('http://onveilig')), 'only https servers');
+  assert.ok(!calls.some(([u]) => u.startsWith('https://geen-api')));
+
+  // Nothing answers: still a result, so the app can offer yt-dlp.
+  const none = await findMedia('https://www.youtube.com/shorts/dQw4w9WgXcQ', { fetchImpl: async (u) => (u.startsWith('https://noembed.com/') ? json({ title: 'Short' }) : new Response('nee', { status: 500 })) });
+  assert.deepEqual(none.youtube.formaten, []);
+  assert.equal(none.titel, 'Short');
+  assert.equal(none.youtube.thumb, 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
+
+  // Your own Cobalt server: every size, asked for at download time.
+  const own = await findMedia('https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=30', { fetchImpl: fake, cobalt: { url: 'https://cobalt.nina.example', key: 'abc' } });
+  assert.equal(own.youtube.bron, 'Cobalt');
+  assert.deepEqual(own.youtube.formaten.map((f) => f.label), YT_FORMATEN.map((f) => f.label));
+  let sent;
+  const cobaltFake = async (u, init) => {
+    sent = { u, headers: init.headers, body: JSON.parse(init.body) };
+    return sent.body.videoQuality === '1080' ? json({ status: 'error', error: { code: 'error.api.youtube.login' } }, 400) : json({ status: 'tunnel', url: 'https://cobalt.nina.example/tunnel?id=1', filename: 'x.mp4' });
+  };
+  assert.equal(await cobaltLink({ url: 'https://cobalt.nina.example/', key: 'abc' }, own.youtube.link, own.youtube.formaten[0], cobaltFake), 'https://cobalt.nina.example/tunnel?id=1');
+  assert.equal(sent.u, 'https://cobalt.nina.example/');
+  assert.equal(sent.headers.Authorization, 'Api-Key abc');
+  assert.deepEqual([sent.body.videoQuality, sent.body.youtubeVideoCodec, sent.body.url], ['144', 'h264', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ']);
+  await cobaltLink({ url: 'https://cobalt.nina.example' }, own.youtube.link, own.youtube.formaten.at(-1), cobaltFake);
+  assert.deepEqual([sent.body.downloadMode, sent.body.audioFormat], ['audio', 'mp3']);
+  assert.equal(sent.headers.Authorization, undefined);
+  await assert.rejects(cobaltLink({ url: 'https://cobalt.nina.example' }, own.youtube.link, own.youtube.formaten[5], cobaltFake), /error\.api\.youtube\.login/);
+
+  // yt-dlp on the Mac, built from the id only.
+  assert.equal(ytdlpCommand('dQw4w9WgXcQ', { soort: 'video', hoogte: 240 }), 'yt-dlp -S "res:240,ext:mp4:m4a" --merge-output-format mp4 -o "~/Downloads/%(title)s 240p.%(ext)s" "https://www.youtube.com/watch?v=dQw4w9WgXcQ"');
+  assert.match(ytdlpCommand('dQw4w9WgXcQ"; rm -rf ~', { soort: 'audio' }), /"https:\/\/www\.youtube\.com\/watch\?v=dQw4w9WgXcQ"$/);
+  await assert.rejects(findMedia('https://www.youtube.com/@kallaway', { fetchImpl: fake }), /geen link naar een YouTube-video/);
+});
+
 test('video: the share-sheet shortcut opens the downloader with the link', async () => {
   const { buildVideoShortcut, signCommand } = await import('../lib/shortcut.js');
   const xml = buildVideoShortcut('https://aiolaf.github.io/contentmachine/#/feed');

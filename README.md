@@ -141,12 +141,18 @@ In Obsidian klik je op een #hashtag in dat bestand om alle items met die hashtag
 
 ## Video downloaden
 
-Video's van **X, TikTok, Instagram, Threads en LinkedIn** bewaar je op je iPhone of Mac, zonder de rare downloadsites. Foto's ook: van X, TikTok, Instagram en Threads.
+Video's van **X, TikTok, Instagram, Threads, LinkedIn en YouTube** bewaar je op je iPhone of Mac, zonder de rare downloadsites. Foto's ook: van X, TikTok, Instagram en Threads.
 
 - **In de app:** op de Mac in de zijbalk (**Video en foto's**), op de iPhone via het plusje en **Video**. Bij elke post van die platforms staat ook een downloadknop.
 - **Vanuit het deelmenu:** onder Instellingen download je een tweede opdracht, **Videodownloader**. Deel een post, en de downloader opent met de video klaar. Er staat geen token in en hij werkt ook zonder gekoppelde vault.
 
 Je ziet de video eerst, dan download je hem met een voortgangsbalk. Op de iPhone kies je daarna **Bewaar video** (Foto's) of **Bewaar in Bestanden**; op de Mac komt hij in Downloads. Lukt direct downloaden niet, dan opent de app de video zodat je hem zelf bewaart.
+
+**YouTube in de kwaliteit die je wilt.** Bij een YouTube-link kies je zelf de kwaliteit, met de grootte erbij, zodat je een video ook heel klein binnenhaalt. **Alleen geluid** is het kleinst, handig voor een podcast of talk.
+
+- Zonder eigen server haalt de app de video via openbare Piped- en Invidious-servers. Die geven meestal 360p met geluid en alleen geluid (soms ook een extra kleine versie). Ze worden vaak door YouTube geblokkeerd, dus dit lukt niet altijd.
+- Met een eigen [Cobalt](https://github.com/imputnet/cobalt)-server krijg je elke kwaliteit: 144p, 240p, 360p, 480p, 720p, 1080p en alleen geluid (mp3). Cobalt is gratis software die je op een kleine server zet. Vul het adres (en een API-sleutel als je server die vraagt) in onder Instellingen, *Video's downloaden vanuit je deelmenu*. Ze blijven op je apparaat en gaan alleen naar die server.
+- Op je Mac werkt **yt-dlp** altijd. Eenmalig `brew install yt-dlp ffmpeg`, daarna geeft de app per kwaliteit een kant-en-klare regel voor Terminal; het bestand komt in Downloads. Antwoordt geen server, dan kies je de kwaliteit voor die regel.
 
 **Foto's, slideshows en carrousels.** Deel je een foto-post op X, een foto-slideshow op TikTok of een carrousel op Instagram, dan zie je alle slides in een stripje onder het voorbeeld, met een videotje erop als een slide een video is. **Download alles** haalt ze in een keer op; op de iPhone bewaar je ze dan samen in Foto's. Foto's van X komen in de originele grootte. Instagram en TikTok geven hun foto's niet aan andere sites, dus die komen zo nodig via de gratis beeldproxy wsrv.nl. Krijgt Instagram de volledige postdata niet mee, dan zie je alleen de foto die de insluitpagina toont.
 
@@ -156,6 +162,7 @@ Je ziet de video eerst, dan download je hem met een voortgangsbalk. Op de iPhone
 | TikTok | tikwm (gratis API, zonder watermerk; slideshows als losse foto's) | meestal |
 | Instagram | de openbare insluitpagina, via Jina Reader; foto's via de beeldproxy wsrv.nl | alleen openbare posts, niet altijd |
 | Threads | de openbare postpagina (en anders de insluitpagina), via Jina Reader; foto's via wsrv.nl | alleen openbare posts, niet altijd |
+| YouTube | openbare Piped- of Invidious-servers, of je eigen Cobalt-server; op de Mac yt-dlp | openbaar: wisselend, eigen server en yt-dlp: ja |
 | LinkedIn | de openbare insluitpagina, via Jina Reader | alleen openbare posts, niet altijd |
 
 Die diensten zien de link. Alleen voor eigen gebruik: wil je een video van een ander posten, vraag dan eerst toestemming.
@@ -333,7 +340,7 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | `lib/highlights.js` | markeringen met notities |
 | `lib/review.js` | Vandaag: dagelijkse herhaling |
 | `lib/content.js` | content-archief: onderwerpen, statistiek, eerder gemaakt |
-| `lib/video.js` | video- en fotobestanden vinden achter posts op X, TikTok, Instagram, Threads en LinkedIn |
+| `lib/video.js` | video- en fotobestanden vinden achter posts op X, TikTok, Instagram, Threads, LinkedIn en YouTube |
 | `lib/lessons.js` | lessen van items om van te leren |
 | `lib/prompts.js` | prompt-generator |
 | `lib/haiku.js` | optionele Claude Haiku-stap |
