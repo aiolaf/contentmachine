@@ -627,6 +627,98 @@ test('content: links to the content survive Obsidian, the log syncs with the vau
   assert.ok(!again.concepts().some((c) => c.file === file));
 });
 
+test('vault: a new title renames the note and the links to it in concepts', async () => {
+  const store = new LocalStore({ storage: memoryStorage() });
+  const vault = new Vault(store, { root: 'Contentmachine' });
+  vault.flushDelay = 10_000;
+  await vault.load();
+  const m = vault.create({ titel: 'Kallaway: How I Tell Stories', map: 'Content Inspiratie', opgeslagen: '2026-11-01T09:00:00Z' }, '## Mijn notities\n\nGoede video\n');
+  assert.equal(m.path, 'Content Inspiratie/2026-11-01 Kallaway How I Tell Stories.md');
+  const other = vault.create({ titel: 'Iets anders', map: 'AI Nieuws', opgeslagen: '2026-11-01T10:00:00Z' }, 'x');
+  const file = vault.writeConcept({ titel: 'Verhalen', soort: 'LinkedIn post', datum: '2026-11-02T10:00:00Z' }, '# Verhalen\n\n## Bronnen in de vault\n\n- [[2026-11-01 Kallaway How I Tell Stories]]\n- [[2026-11-01 Iets anders]]\n');
+  vault.saveContent([{ file, datum: '2026-11-02T10:00:00Z', label: 'LinkedIn post', titel: 'Verhalen', bronnen: [m.id, other.id], onderwerpen: [] }]);
+  await vault.flush();
+
+  const next = await vault.retitle(m.id, '  Storytelling   in video  ');
+  assert.equal(next.titel, 'Storytelling in video');
+  assert.equal(next.path, 'Content Inspiratie/2026-11-01 Storytelling in video.md');
+  const { body } = await vault.readConcept(file);
+  assert.match(body, /- \[\[2026-11-01 Storytelling in video\]\]\n- \[\[2026-11-01 Iets anders\]\]/);
+  await vault.flush();
+  const again = new Vault(store, { root: 'Contentmachine' });
+  await again.load();
+  assert.equal(again.meta(m.id).titel, 'Storytelling in video');
+  assert.match((await again.get(m.id)).body, /Goede video/, 'the notes come along');
+  assert.ok(!again.files.has('Contentmachine/Content Inspiratie/2026-11-01 Kallaway How I Tell Stories.md'), 'the old file is gone');
+  await assert.rejects(again.retitle(m.id, '   '), /niet leeg/);
+});
+
+test('leren: items to learn from, their lessons and the prompts around them', async () => {
+  const { cleanLessons, countLessons, lessonsOf, withLessons } = await import('../lib/lessons.js');
+  const { guessDoel, LEREN_WOORDEN } = await import('../lib/classify.js');
+  const { buildLessonPrompt } = await import('../lib/prompts.js');
+  const { normalizeMeta } = await import('../lib/frontmatter.js');
+
+  // The property: only "leren" is kept, anything else means: to post about.
+  assert.equal(normalizeMeta({ titel: 'a', doel: 'Leren' }).doel, 'leren');
+  assert.equal('doel' in normalizeMeta({ titel: 'a', doel: 'posten' }), false);
+
+  // Pasted from Claude: no title line, headings one level down, lessons counted.
+  const pasted = '# Lessen uit Kallaway\n\n- Open met het einde.\n- Gebruik "but" en "therefore", nooit "and then".\n1. Eén verhaal per video.\n\n## Zo pas ik het toe\n\n- In mijn volgende TikTok.\n';
+  assert.equal(cleanLessons(pasted).startsWith('- Open met het einde.'), true);
+  const body = withLessons('# T\n\n## Mijn notities\n\nGoed\n\n## Bron\n\nx\n', pasted);
+  assert.match(body, /## Mijn notities\n\nGoed\n\n## Lessen\n\n- Open met het einde\.[\s\S]*### Zo pas ik het toe[\s\S]*## Bron/);
+  assert.equal(countLessons(body), 3, 'not the ways to apply them');
+  assert.equal(getSection(body, 'Mijn notities'), 'Goed', 'the notes end at the lessons');
+  assert.equal(lessonsOf(withLessons(body, '  ')), '', 'empty removes the section');
+
+  // Guessing: the craft words, your own "Leren:" line, then what you taught it.
+  const it = (titel, extra = {}) => ({ titel, verrijkt: true, tags: [], ...extra });
+  assert.equal(guessDoel(it('How I use storytelling to keep people watching')), 'leren');
+  assert.equal(guessDoel(it('OpenAI brengt GPT-6 uit')), 'posten');
+  assert.ok(LEREN_WOORDEN.includes('copywriting'));
+  assert.equal(guessDoel(it('Mijn beste schrijfles'), [], 'AI Nieuws: openai\nLeren: schrijfles, montage'), 'leren');
+  assert.equal(guessDoel(it('Storytelling in video'), [], 'Leren: montage'), 'posten', 'your line replaces the default words');
+  // "Leren:" never becomes a folder.
+  assert.equal(classify(it('Montage tips'), trainModel([]), parseRules('Leren: montage\nAI Tools: tips')).map, 'AI Tools');
+  const taught = [
+    ...['kallaway hooks camera', 'kallaway pacing camera', 'kallaway verhaal camera'].map((t) => it(t, { doel: 'leren' })),
+    ...['openai model release', 'gemini model release', 'claude model release'].map((t) => it(t)),
+  ];
+  assert.equal(guessDoel(it('kallaway camera'), taught), 'leren', 'learned from your own choices');
+  assert.equal(guessDoel(it('mistral model release'), taught), 'posten');
+
+  // The lesson prompt asks for the transcript when a video has no text.
+  const p = buildLessonPrompt({ item: { meta: { titel: 'Storytelling', type: 'tiktok', url: 'https://www.tiktok.com/@kallaway/video/1', auteur: '@kallaway' }, body: '' }, profiel: '# Profiel\n\nOlaf' });
+  assert.match(p, /ik wil ervan leren/);
+  assert.match(p, /vraag me om het transcript/);
+  assert.match(p, /### Bron 1: Storytelling\nURL: https:\/\/www\.tiktok\.com/);
+  assert.doesNotMatch(buildLessonPrompt({ item: { meta: { titel: 'Blog', type: 'artikel' }, body: '' } }), /transcript/);
+
+  // Lessons go along in a content prompt as techniques, not as sources.
+  const prompt = buildPrompt({ soort: 'linkedin', items: [{ meta: { titel: 'Agents in het mkb' }, body: '' }], lessen: [{ titel: 'Storytelling', auteur: '@kallaway', tekst: '- Open met het einde.\n\n### Zo pas ik het toe\n\n- x' }, { titel: 'Leeg', tekst: ' ' }] });
+  assert.match(prompt, /## Technieken die ik wil toepassen\n\n[^\n]*Noem de technieken en de makers niet[\s\S]*### Van @kallaway: Storytelling\n- Open met het einde\.\n\n#### Zo pas ik het toe/);
+  assert.doesNotMatch(prompt, /Leeg/);
+  assert.ok(prompt.indexOf('## Technieken') < prompt.indexOf('## Bronnen'));
+});
+
+test('leren: a capture can be saved to learn from, and the vault counts its lessons', async () => {
+  const store = new LocalStore({ storage: memoryStorage() });
+  const vault = new Vault(store, { root: 'Contentmachine' });
+  vault.flushDelay = 10_000;
+  await vault.load();
+  const meta = await processCapture(vault, { text: 'Storytelling: how I keep people watching my videos' }, { fetchImpl: noFetch });
+  assert.equal(meta.doel, 'leren');
+  const plain = await processCapture(vault, { text: 'Nieuwe wet over AI in de zorg' }, { fetchImpl: noFetch });
+  assert.equal(plain.doel, undefined);
+  const { withLessons } = await import('../lib/lessons.js');
+  const up = await vault.update(meta.id, {}, { transform: (b) => withLessons(b, '- Een\n- Twee') });
+  assert.equal(up.lessen, 2);
+  const back = await vault.update(meta.id, { doel: undefined });
+  assert.equal(back.doel, undefined);
+  assert.match((await vault.get(meta.id)).body, /## Lessen\n\n- Een/, 'the lessons stay when it moves back');
+});
+
 test('vault: a capture ordered just before the app closed does not break the next start', async () => {
   const store = new LocalStore({ storage: memoryStorage() });
   const storage = memoryStorage();
@@ -692,7 +784,7 @@ test('video: finds the file behind posts on X, TikTok, Instagram and LinkedIn', 
   assert.equal(li.media[0].url, 'https://dms.licdn.com/hd.mp4', 'highest bitrate first');
   assert.equal(li.media[0].thumb, 'https://media.licdn.com/p.jpg');
 
-  await assert.rejects(findMedia('https://example.org/blog', { fetchImpl: fake }), /werkt voor X, TikTok/);
+  await assert.rejects(findMedia('https://example.org/blog', { fetchImpl: fake }), /werkt voor X, TikTok, Instagram, Threads/);
   await assert.rejects(findMedia('geen link', { fetchImpl: fake }), /Plak een link/);
   assert.deepEqual(videosInHtml('<meta property="og:video" content="https://cdn.example.com/a.mp4"><video src="http://insecure/b.mp4">'), ['https://cdn.example.com/a.mp4']);
 });
@@ -795,6 +887,49 @@ test('video: photo posts on X and photo slideshows on TikTok', async () => {
   const tt = await findMedia('https://www.tiktok.com/@nina/photo/7400', { fetchImpl: fake });
   assert.deepEqual(tt.media.map((m) => `${m.soort} ${m.bestand}`), ['foto tiktok-7400-1.jpg', 'foto tiktok-7400-2.webp'], 'the photos, not the music');
   assert.match(tt.media[0].mini, /^https:\/\/wsrv\.nl\/\?url=https%3A%2F%2Fp16-sign\.tiktokcdn\.com.*&w=240$/);
+});
+
+test('video: photos and videos of a Threads post, not those of its replies', async () => {
+  const { findMedia } = await import('../lib/video.js');
+  const img = (n, w = 1080) => ({ candidates: [{ url: `https://scontent.cdninstagram.com/t/${n}_${w / 2}.jpg`, width: w / 2 }, { url: `https://scontent.cdninstagram.com/t/${n}_${w}.jpg`, width: w }] });
+  // As the page sends it: the thread in a JSON script, the post first, then replies.
+  const page = (items) => `<html><head><meta property="og:image" content="https://scontent.cdninstagram.com/profiel.jpg"></head><body>
+    <script type="application/json" data-sjs>${JSON.stringify({ require: [['ScheduledServerJS', 'handle', null, [{ __bbox: { result: { data: { data: { edges: [{ node: { thread_items: items.map((post) => ({ post })) } }] } } } } }]]] })}</script></body></html>`;
+  const pages = {
+    'https://www.threads.com/@nina.ai/post/DTH1': page([
+      { pk: '1', code: 'DTH1', user: { username: 'nina.ai' }, caption: { text: 'Drie dingen die ik leerde van agents bouwen' }, carousel_media: [
+        { media_type: 1, image_versions2: img('a'), original_width: 1080, original_height: 1350 },
+        { media_type: 2, image_versions2: img('b'), video_versions: [{ type: 101, url: 'https://scontent.cdninstagram.com/t/b.mp4' }] },
+      ] },
+      { pk: '2', code: 'REPLY9', user: { username: 'iemand' }, image_versions2: img('reply') },
+    ]),
+    'https://www.threads.com/@nina.ai/post/TEKST1': page([{ pk: '3', code: 'TEKST1', caption: { text: 'Alleen tekst' }, image_versions2: { candidates: [] } }]),
+    'https://www.threads.com/@nina.ai/post/TEKST1/embed': '<div class="post">Alleen tekst</div>',
+    'https://www.threads.com/t/VID1': '<div>Log in</div>',
+    'https://www.threads.com/t/VID1/embed': '<video poster="https://scontent.cdninstagram.com/t/v.jpg" src="https://scontent.cdninstagram.com/t/v.mp4"></video>',
+  };
+  const calls = [];
+  const fake = async (url) => {
+    calls.push(url);
+    const target = url.replace('https://r.jina.ai/', '');
+    return pages[target] !== undefined ? new Response(JSON.stringify({ data: { html: pages[target] } })) : new Response('nee', { status: 404 });
+  };
+
+  const th = await findMedia('https://www.threads.net/@nina.ai/post/DTH1?xmt=abc', { fetchImpl: fake });
+  assert.equal(th.platform, 'Threads');
+  assert.deepEqual(th.media.map((m) => [m.soort, m.url, m.bestand]), [
+    ['foto', 'https://scontent.cdninstagram.com/t/a_1080.jpg', 'threads-DTH1-1.jpg'],
+    ['video', 'https://scontent.cdninstagram.com/t/b.mp4', 'threads-DTH1-2.mp4'],
+  ], 'the post itself, widest photo, no reply and no profile photo');
+  assert.equal(th.auteur, '@nina.ai');
+  assert.equal(th.titel, 'Drie dingen die ik leerde van agents bouwen');
+  assert.match(th.media[1].mini, /^https:\/\/wsrv\.nl\/\?url=.*b_1080\.jpg&w=240$/);
+  assert.ok(calls[0].startsWith('https://r.jina.ai/https://www.threads.com/@nina.ai/post/DTH1'), 'threads.net links go to threads.com');
+
+  await assert.rejects(findMedia('https://www.threads.com/@nina.ai/post/TEKST1', { fetchImpl: fake }), /Geen video of foto gevonden. Threads/);
+  const vid = await findMedia('https://www.threads.net/t/VID1', { fetchImpl: fake });
+  assert.deepEqual(vid.media.map((m) => [m.soort, m.url]), [['video', 'https://scontent.cdninstagram.com/t/v.mp4']], 'the embed when the page has nothing');
+  await assert.rejects(findMedia('https://www.threads.com/@x/post/WEG1', { fetchImpl: fake }), /Threads gaf geen antwoord/);
 });
 
 test('video: the share-sheet shortcut opens the downloader with the link', async () => {

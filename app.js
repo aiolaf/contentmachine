@@ -9,9 +9,10 @@ import { findMedia } from './lib/video.js';
 import {
   parseBundles, stringifyBundles, autoBundle, bundleOf, bundlesFor, setFolderBundles, renameFolderInBundles, OTHER,
 } from './lib/bundles.js';
-import { buildPrompt, chatLinks, SOORTEN as PROMPT_SOORTEN } from './lib/prompts.js';
+import { buildPrompt, buildLessonPrompt, chatLinks, SOORTEN as PROMPT_SOORTEN } from './lib/prompts.js';
 import { trainModel } from './lib/classify.js';
-import { STATUSES, getSection, removeSection, parseNote } from './lib/frontmatter.js';
+import { STATUSES, getSection, setSection, removeSection, parseNote, NOTES } from './lib/frontmatter.js';
+import { lessonsOf, withLessons } from './lib/lessons.js';
 import { fold, plainText, parseQuery, matchItem, snippet } from './lib/search.js';
 import { parseHighlights, withHighlights, cleanHighlight, sameHighlight, MARKERINGEN } from './lib/highlights.js';
 import { dailyReview, stopReview, daysUntil, highlightOfDay, localDay } from './lib/review.js';
@@ -55,6 +56,7 @@ const ICONS = {
   download: '<path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
   video: '<path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.87a.5.5 0 0 0-.75-.43L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  bulb: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>',
   marker: '<path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
 };
@@ -67,7 +69,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '6 nov 2026, 19:45';
+const VERSIE = '8 nov 2026, 11:00';
 // The Teleprompter lives in teleprompter/ on the same site; it shows a link back here.
 const TELEPROMPTER_URL = 'teleprompter/?van=contentmachine';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
@@ -147,7 +149,13 @@ const S = {
   gen: null,
   pop: null,
   video: null,
+  // Feed: material to post about, or items saved to learn from.
+  doel: local.get('cm_doel', 'posten') === 'leren' ? 'leren' : 'posten',
+  titelEdit: false,
+  // Items to learn from whose lessons go along in the next prompt.
+  lessen: new Set(),
 };
+const isLeren = (i) => i.doel === 'leren';
 
 // A toast in the stack; pass { actie } for an "Ongedaan maken" button.
 const toast = (msg, opts) => showToast(msg, opts);
@@ -236,6 +244,9 @@ function folderList() {
 function visibleItems() {
   let list = S.items;
   if (S.map) list = list.filter((i) => i.map === S.map);
+  const terms = parseQuery(S.q);
+  // Searching looks in both: to post about and to learn from.
+  if (!terms.length) list = list.filter((i) => isLeren(i) === (S.doel === 'leren'));
   if (S.map && S.bundel) {
     const model = bundleModel();
     list = list.filter((i) => {
@@ -244,7 +255,6 @@ function visibleItems() {
     });
   }
   const f = S.filter;
-  const terms = parseQuery(S.q);
   // Searching from Actueel looks everywhere, the content archive included.
   if (!(terms.length && f === 'actief')) {
     list = list.filter((i) => (f === 'actief' ? isActive(i)
@@ -565,6 +575,7 @@ async function loadDetail(id) {
   if (S.detail?.id !== id) {
     S.detail = null;
     S.embed = null;
+    S.titelEdit = false;
   }
   renderDetail();
   try {
@@ -606,6 +617,7 @@ function card(i) {
         <span class="src">${esc(i.bron || i.map)}</span>
         <span>${relDate(i.opgeslagen)}</span>
         ${i.markeringen ? `<span class="hl-count" title="${i.markeringen} markering${i.markeringen === 1 ? '' : 'en'}">${icon('marker')}${i.markeringen}</span>` : ''}
+        ${isLeren(i) ? `<span class="les-count" title="${i.lessen ? `${i.lessen} les${i.lessen === 1 ? '' : 'sen'}` : 'Om van te leren, nog geen lessen'}">${icon('bulb')}${i.lessen || ''}</span>` : ''}
         ${i.ster ? `<span class="star-mini">${icon('star', true)}</span>` : ''}
         <span class="score ${scoreClass(i.rank)}" title="Basis ${i.score}, geleerd ${i.boost >= 0 ? '+' : ''}${i.boost}">${shown(i.rank)}</span>
       </div>
@@ -616,7 +628,7 @@ function card(i) {
     </div>
     <div class="card-side">
       ${thumbHtml(i)}
-      <button class="select-box" data-action="select" data-id="${esc(i.id)}" aria-label="Selecteer voor een prompt">${icon('check')}</button>
+      ${isLeren(i) ? '' : `<button class="select-box" data-action="select" data-id="${esc(i.id)}" aria-label="Selecteer voor een prompt">${icon('check')}</button>`}
     </div>
   </article>`;
 }
@@ -648,17 +660,19 @@ function listHtml() {
   }
   const items = visibleItems();
   const searching = parseQuery(S.q).length;
-  const unread = S.items.filter((i) => i.status === 'nieuw' && (!S.map || i.map === S.map)).length;
+  const unread = S.items.filter((i) => i.status === 'nieuw' && (!S.map || i.map === S.map) && isLeren(i) === (S.doel === 'leren')).length;
   const banner = !searching && unread >= 2 && ['actief', 'nieuw'].includes(S.filter)
     ? `<button class="sort-banner" data-action="nav" data-href="#/sorteren"><span class="mini-deck" aria-hidden="true"><i></i><i></i><i></i></span><span class="sort-text"><b>${unread} ongelezen</b><small>Snel sorteren: veeg naar rechts of links</small></span><span class="chev-r">${icon('chevron')}</span></button>`
     : '';
   const hint = searching && S.tekst ? `<p class="small muted search-hint"><span class="spinner"></span>Volledige tekst laden: ${S.tekst.klaar} van ${S.tekst.totaal} notities. De resultaten vullen zich aan.</p>` : '';
-  const none = searching ? 'Niets gevonden, ook niet in de volledige tekst.' : 'Niets gevonden met dit filter.';
+  const none = searching ? 'Niets gevonden, ook niet in de volledige tekst.'
+    : S.doel === 'leren' && !S.items.some(isLeren) ? 'Nog niets om van te leren. Open een item, bijvoorbeeld een video over storytelling, en kies <b>Om van te leren</b>. Nieuwe links over het maken van content komen hier vanzelf.'
+      : 'Niets gevonden met dit filter.';
   return busy + banner + hint + (items.length ? items.map(card).join('') : `<div class="empty"><p>${none}</p></div>`);
 }
 
 function chipsHtml() {
-  const base = S.map ? S.items.filter((i) => i.map === S.map) : S.items;
+  const base = (S.map ? S.items.filter((i) => i.map === S.map) : S.items).filter((i) => isLeren(i) === (S.doel === 'leren'));
   const count = {
     actief: base.filter(isActive).length,
     nieuw: base.filter((i) => i.status === 'nieuw').length,
@@ -667,6 +681,14 @@ function chipsHtml() {
     archief: base.filter((i) => i.status === 'archief').length,
   };
   return FILTERS.map(([k, label]) => `<button class="chip ${S.filter === k ? 'on' : ''}" data-action="filter" data-v="${k}">${label}<span class="n">${rollHtml(count[k], `chip:${S.map || ''}:${k}`)}</span></button>`).join('');
+}
+
+// Two kinds of saved items: material to post about, and makers to learn from.
+function doelSegHtml() {
+  const base = (S.map ? S.items.filter((i) => i.map === S.map) : S.items).filter(isActive);
+  const n = base.filter(isLeren).length;
+  const btn = (v, label, count) => `<button class="${S.doel === v ? 'on' : ''}" data-action="doel" data-v="${v}" aria-pressed="${S.doel === v}">${v === 'leren' ? icon('bulb') : icon('feed')}${label}<span class="n">${count}</span></button>`;
+  return btn('posten', 'Om te posten', base.length - n) + btn('leren', 'Om van te leren', n);
 }
 
 // Newspaper-style line above the feed title: weekday, date and what is unread.
@@ -684,6 +706,7 @@ function feedView() {
       <button class="btn" data-action="sort" title="Sortering">${icon('sort')}${SORTS[S.sort]}</button>
     </div>
     <label class="search">${icon('search')}<input id="q" type="search" placeholder="Zoek in alles, ook de volledige tekst" value="${esc(S.q)}" autocomplete="off"></label>
+    <div class="doel-seg" id="doel-seg" role="group" aria-label="Soort items">${doelSegHtml()}</div>
     ${S.map && S.map !== 'Inbox' ? `<div class="chips bundles" id="bundles">${bundleChipsHtml()}</div>` : ''}
     <div class="chips" id="chips">${chipsHtml()}</div>
     <div class="list" id="list">${listHtml()}</div>`;
@@ -733,9 +756,17 @@ function detailHtml() {
     <button class="btn ghost back mobile-only" data-action="back">${icon('back')}Terug</button>
     ${hero}
     <div class="card-top"><span class="type">${esc(TYPE_LABEL[d.type] || d.type || 'Item')}</span><span>${esc(d.map)}</span><span>${relDate(d.opgeslagen)}</span></div>
-    <h2>${esc(d.titel)}</h2>
+    ${S.titelEdit && !d.invalid
+    ? `<div class="title-edit"><input id="title-input" value="${esc(d.titel)}" aria-label="Titel" autocomplete="off" enterkeyhint="done">
+        <button class="btn primary" data-action="save-title">${icon('check')}Bewaar</button><button class="btn ghost" data-action="cancel-title">Annuleer</button></div>
+        <p class="small muted title-hint">De bestandsnaam in Obsidian verandert mee.</p>`
+    : `<div class="title-row"><h2>${esc(d.titel)}</h2>${d.invalid ? '' : `<button class="icon-btn title-btn" data-action="edit-title" aria-label="Titel aanpassen" title="Titel aanpassen">${icon('pen')}</button>`}</div>`}
     <div class="meta-line">${d.bron ? `<span>${esc(d.bron)}</span>` : ''}${d.auteur ? `<span>${esc(d.auteur)}</span>` : ''}<span>${esc(d.status)}</span></div>
-    ${d.invalid ? '<div class="panel error-text">De eigenschappen van deze notitie zijn ongeldig (YAML). Herstel ze in Obsidian; tot die tijd kun je hem hier niet aanpassen.</div>' : ''}
+    ${d.invalid ? '<div class="panel error-text">De eigenschappen van deze notitie zijn ongeldig (YAML). Herstel ze in Obsidian; tot die tijd kun je hem hier niet aanpassen.</div>' : `
+    <div class="doel-switch" role="radiogroup" aria-label="Waarvoor bewaar je dit?">
+      <button role="radio" aria-checked="${!isLeren(d)}" class="${isLeren(d) ? '' : 'on'}" data-action="set-doel" data-v="posten">${icon('feed')}<span><b>Om te posten</b><small>Materiaal voor je eigen content</small></span></button>
+      <button role="radio" aria-checked="${isLeren(d)}" class="${isLeren(d) ? 'on' : ''}" data-action="set-doel" data-v="leren">${icon('bulb')}<span><b>Om van te leren</b><small>Hoe deze maker het doet</small></span></button>
+    </div>`}
     <div class="action-row">
       <button class="icon-btn ${d.ster ? 'on' : ''}" data-action="star" data-pop="star" aria-pressed="${d.ster}" aria-label="Ster">${icon('star', d.ster)}</button>
       <button class="icon-btn ${d.oordeel === 1 ? 'on-good' : ''}" data-action="vote" data-v="1" data-pop="vote1" aria-pressed="${d.oordeel === 1}" aria-label="Meer hiervan">${icon('up')}</button>
@@ -747,7 +778,7 @@ function detailHtml() {
     </div>
     <div class="scorebox"><div class="big">${rollHtml(shown(d.rank), 'score')}</div><div class="why">${d.ordening === 'haiku' ? 'Geordend met Claude Haiku.' : d.ordening ? `Map gekozen via ${esc(d.ordening)}.` : ''}<br><span class="small">Basis ${d.score} ${d.boost >= 0 ? '+' : ''}${d.boost} geleerd${d.ster ? ', +15 ster' : ''}${d.oordeel ? `, ${d.oordeel > 0 ? '+' : ''}${d.oordeel * 10} duim` : ''}</span></div></div>
     ${usedInHtml(d)}
-    <div class="panel">
+    ${isLeren(d) ? learnPanel(d) : `<div class="panel">
       <h3>Maak er content van</h3>
       <p class="small muted">Je krijgt een kant-en-klare prompt voor Claude of ChatGPT.</p>
       <div class="make-row">
@@ -758,7 +789,7 @@ function detailHtml() {
         <button class="btn" data-action="make" data-v="nieuwsbrief">${icon('sparkle')}Nieuwsbrief</button>
         <button class="btn ghost" data-action="select" data-id="${esc(d.id)}">${S.selected.has(d.id) ? 'In selectie' : 'Voeg toe aan selectie'}</button>
       </div>
-    </div>
+    </div>`}
     <div class="field"><label for="map-select">Map</label><select id="map-select">${folderOptions(d.map)}</select></div>
     <div class="field"><label for="tags-input">Tags (komma's)</label><input id="tags-input" value="${esc((d.tags || []).join(', '))}" autocomplete="off"></div>
     <div class="field"><label for="notes">Mijn notities <span id="notes-state" class="small"></span></label><textarea id="notes" rows="4" placeholder="Jouw gedachten, invalshoek of hook. Gaat mee in de prompt en staat ook in Obsidian.">${esc(d.notities || '')}</textarea></div>
@@ -766,6 +797,89 @@ function detailHtml() {
     <div class="md" id="reader">${md(withoutNotes(d.body || '', image))}</div>
     <p class="small muted">Bestand: ${esc(d.path)}</p>
   </div>`;
+}
+
+// For an item to learn from: a prompt that pulls the lessons out, and the
+// lessons themselves, which you can take into the Studio.
+function learnPanel(d) {
+  const video = ['youtube', 'tiktok', 'instagram', 'threads'].includes(d.type);
+  const tekst = d.lessenTekst ?? lessonsOf(d.body || '');
+  return `<div class="panel learn-panel">
+    <h3>${icon('bulb')}Leer ervan</h3>
+    <p class="small muted">Wat vertelt deze maker dat jij kunt toepassen? Laat Claude de lessen eruit halen en plak ze hieronder, of schrijf ze zelf.</p>
+    ${video ? '<p class="small muted">Bij een video heeft Claude de tekst nodig: zet het transcript in <b>Mijn notities</b>, dan gaat het mee in de prompt.</p>' : ''}
+    <div class="make-row">
+      <button class="btn primary" data-action="lesson-chat" data-v="claude">${icon('external')}Kopieer prompt en open Claude</button>
+      <button class="btn" data-action="lesson-chat" data-v="chatgpt">${icon('external')}ChatGPT</button>
+      <button class="btn ghost" data-action="lesson-copy">${icon('copy')}Alleen kopieer</button>
+    </div>
+    <div class="field"><label for="lessen">Lessen <span id="lessen-state" class="small"></span></label>
+      <textarea id="lessen" rows="${tekst ? 8 : 4}" placeholder="- Open met het einde, dan pas het begin.&#10;- Gebruik maar en dus, nooit en toen.">${esc(tekst)}</textarea></div>
+    <div id="lessen-use">${lessonsUseHtml(d)}</div>
+  </div>`;
+}
+
+const lessonsUseHtml = (d) => (d.lessen
+  ? `<button class="btn block" data-action="use-lessons">${icon('sparkle')}Pas toe in de Studio</button>`
+  : '<p class="small muted">Zodra er lessen staan, kun je ze in de Studio meegeven bij je eigen content.</p>');
+
+// Saves what is in the Lessen field, without redrawing it while you type.
+async function saveLessons(id, text) {
+  try {
+    const m = await S.vault.update(id, {}, { transform: (b) => withLessons(b, text) });
+    refreshItems();
+    renderList();
+    if (S.detail?.id !== id) return;
+    S.detail = detailWith(m, { lessenTekst: text, body: withLessons(S.detail.body || '', text) });
+    const use = $('#lessen-use');
+    if (use) use.innerHTML = lessonsUseHtml(S.detail);
+    const st = $('#lessen-state');
+    if (st) st.textContent = m.lessen ? `bewaard, ${m.lessen} les${m.lessen === 1 ? '' : 'sen'}` : 'bewaard';
+  } catch (e) {
+    toast(e.message, { soort: 'fout' });
+  }
+}
+
+async function saveTitle() {
+  const d = S.detail;
+  const titel = ($('#title-input')?.value || '').replace(/\s+/g, ' ').trim();
+  if (!d || !titel || titel === d.titel) {
+    S.titelEdit = false;
+    renderDetail();
+    if (!titel) toast('Een titel kan niet leeg zijn');
+    return;
+  }
+  const oud = d.titel;
+  try {
+    const m = await S.vault.retitle(d.id, titel);
+    S.titelEdit = false;
+    refreshItems();
+    if (S.detail?.id === d.id) S.detail = detailWith(m);
+    renderList();
+    renderDetail();
+    toast('Titel aangepast', { soort: 'ok', actie: async () => {
+      const back = await S.vault.retitle(d.id, oud);
+      refreshItems();
+      if (S.detail?.id === d.id) S.detail = detailWith(back);
+      renderList();
+      renderDetail();
+    } });
+  } catch (e) {
+    toast(e.message, { soort: 'fout' });
+  }
+}
+
+// The open item with fresh properties: a property that was removed (like
+// doel or lessen) does not linger from before.
+function detailWith(m, extra = {}) {
+  const { body, invalid, notities, lessenTekst } = S.detail;
+  return { ...decorate(m), body, invalid, notities, lessenTekst, ...extra };
+}
+
+// The current item as a source, with notes typed since it was opened.
+function detailSource(d) {
+  const body = d.notities !== undefined ? setSection(d.body || '', NOTES, d.notities) : d.body || '';
+  return { meta: d, body };
 }
 
 const shortDate = (iso) => new Date(iso).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }).replace('.', '');
@@ -916,7 +1030,7 @@ function vandaagView() {
 }
 
 // ---------- video downloader ----------
-const VIDEO_TYPES = ['tweet', 'tiktok', 'instagram', 'linkedin'];
+const VIDEO_TYPES = ['tweet', 'tiktok', 'instagram', 'threads', 'linkedin'];
 const emptyDl = () => ({ staat: 'rust', loaded: 0, total: 0, n: 0, van: 1, files: [], mislukt: 0 });
 const emptyVideo = (invoer = '') => ({ invoer, staat: 'leeg', fout: '', info: null, keuze: 0, dl: emptyDl() });
 const mb = (n) => `${(n / 1048576).toLocaleString('nl-NL', { maximumFractionDigits: 1 })} MB`;
@@ -982,7 +1096,7 @@ function videoResultHtml(v) {
 function videoView() {
   const v = S.video || (S.video = emptyVideo());
   const busy = v.staat === 'zoeken';
-  return `<div class="topbar"><div style="flex:1;min-width:0"><span class="dateline">X, TikTok, Instagram, LinkedIn</span><h1>Video en foto's downloaden</h1></div></div>
+  return `<div class="topbar"><div style="flex:1;min-width:0"><span class="dateline">X, TikTok, Instagram, Threads, LinkedIn</span><h1>Video en foto's downloaden</h1></div></div>
     <div class="video-input">
       <input id="video-url" type="url" inputmode="url" placeholder="Plak een link naar een post" value="${esc(v.invoer)}" autocapitalize="off" autocomplete="off">
       <button class="btn" data-action="video-paste">${icon('copy')}Plak</button>
@@ -991,9 +1105,9 @@ function videoView() {
     ${v.staat === 'fout' ? `<div class="panel error-panel"><b>Niet gelukt</b><p class="small">${esc(v.fout)}</p></div>` : ''}
     ${v.info ? videoResultHtml(v) : ''}
     <div class="panel video-help">
-      <div class="platforms"><span class="pf ok">X</span><span class="pf ok">TikTok</span><span class="pf maybe">Instagram</span><span class="pf maybe">LinkedIn</span></div>
-      <p class="small muted">X en TikTok gaan via gratis diensten (fxtwitter, tikwm). Instagram en LinkedIn lezen we van de openbare post via Jina Reader; dat lukt niet bij elke post. Die diensten zien de link.</p>
-      <p class="small muted">Foto's werken ook: foto-posts op X, foto-slideshows op TikTok en carrousels op Instagram. Je krijgt alle slides en downloadt ze in een keer. Foto's komen zo nodig via de gratis beeldproxy wsrv.nl, omdat Instagram en TikTok ze niet aan andere sites geven.</p>
+      <div class="platforms"><span class="pf ok">X</span><span class="pf ok">TikTok</span><span class="pf maybe">Instagram</span><span class="pf maybe">Threads</span><span class="pf maybe">LinkedIn</span></div>
+      <p class="small muted">X en TikTok gaan via gratis diensten (fxtwitter, tikwm). Instagram, Threads en LinkedIn lezen we van de openbare post via Jina Reader; dat lukt niet bij elke post. Die diensten zien de link.</p>
+      <p class="small muted">Foto's werken ook: foto-posts op X en Threads, foto-slideshows op TikTok en carrousels op Instagram. Je krijgt alle slides en downloadt ze in een keer. Foto's komen zo nodig via de gratis beeldproxy wsrv.nl, omdat Instagram, Threads en TikTok ze niet aan andere sites geven.</p>
       <p class="small muted">Alleen voor eigen gebruik. Wil je een video of foto van een ander posten, vraag dan eerst toestemming.</p>
     </div>`;
 }
@@ -1287,6 +1401,7 @@ function studioView() {
         ${picked.length ? '<button class="btn ghost" data-action="clear-picks">Wis selectie</button>' : ''}
       </div>
     </div>
+    ${techniquesHtml()}
     <div class="field"><label>Wat wil je maken?</label>
       <div class="seg">${SOORTEN.map((s) => `<button class="${S.soort === s.id ? 'on' : ''}" data-action="soort" data-v="${s.id}"><b>${s.label}</b><span>${s.sub}</span></button>`).join('')}</div>
     </div>
@@ -1309,6 +1424,20 @@ function studioView() {
       <button class="btn block" data-action="save-result">${icon('check')}Bewaar resultaat</button>
     </div>` : ''}
     ${recentHtml()}`;
+}
+
+// Lessons from other makers to apply in this piece.
+function techniquesHtml() {
+  const leer = S.items.filter((i) => isLeren(i) && i.status !== 'archief');
+  if (!leer.length) return '';
+  const met = leer.filter((i) => i.lessen).sort((a, b) => S.lessen.has(b.id) - S.lessen.has(a.id) || b.lessen - a.lessen);
+  return `<div class="panel techniques">
+    <h3>${icon('bulb')}Technieken toepassen${S.lessen.size ? ` <span class="small muted">(${S.lessen.size})</span>` : ''}</h3>
+    ${met.length ? `<p class="small muted">Wat je van andere makers leerde. Kies er een paar; de prompt gebruikt ze bij het opbouwen en vertellen.</p>
+      <div class="tech-list">${met.map((i) => `<button class="tech ${S.lessen.has(i.id) ? 'on' : ''}" data-action="toggle-les" data-id="${esc(i.id)}" aria-pressed="${S.lessen.has(i.id)}">
+        <span class="tech-check">${icon('check')}</span><span class="tech-text"><b>${esc(i.titel)}</b><small>${esc([i.auteur || i.bron, `${i.lessen} les${i.lessen === 1 ? '' : 'sen'}`].filter(Boolean).join(' · '))}</small></span></button>`).join('')}</div>`
+      : `<p class="small muted">Je hebt ${leer.length} item${leer.length === 1 ? '' : 's'} om van te leren, maar nog geen lessen. Open er een onder <b>Om van te leren</b> en haal de lessen eruit.</p>`}
+  </div>`;
 }
 
 // A production shows its result (or a field to paste it), its topics and
@@ -1420,7 +1549,7 @@ function settingsView() {
 
     <div class="panel">
       <h3>Video's downloaden vanuit je deelmenu</h3>
-      <p class="small muted">Een tweede opdracht, <b>Videodownloader</b>. Deel een post op X, TikTok, Instagram of LinkedIn en de downloader opent met de video klaar. Ook foto's, slideshows en carrousels. Er staat geen token in.</p>
+      <p class="small muted">Een tweede opdracht, <b>Videodownloader</b>. Deel een post op X, TikTok, Instagram, Threads of LinkedIn en de downloader opent met de video klaar. Ook foto's, slideshows en carrousels. Er staat geen token in.</p>
       <ol class="steps small">
         <li>Download de opdracht op je Mac.</li>
         <li>Plak deze regel in <b>Terminal</b>:
@@ -1687,6 +1816,8 @@ function renderList() {
   if (line) line.textContent = dateline();
   const bundles = $('#bundles');
   if (bundles) bundles.innerHTML = bundleChipsHtml();
+  const seg = $('#doel-seg');
+  if (seg) seg.innerHTML = doelSegHtml();
   const side = $('.sidebar');
   if (side) side.innerHTML = sidebarHtml();
   animateRolls();
@@ -1746,12 +1877,16 @@ async function patchItem(id, body) {
       patch.map = v.folders().find((f) => f.toLowerCase() === clean.toLowerCase()) || clean;
       correction = { from: meta.map, to: patch.map };
     }
+    if ('doel' in body) {
+      const doel = body.doel === 'leren' ? 'leren' : undefined;
+      if (doel !== meta.doel) patch.doel = doel;
+    }
     if (Array.isArray(body.tags)) patch.tags = body.tags.map((t) => t.toLowerCase().trim().replace(/\s+/g, '-')).filter(Boolean);
     const updated = await v.update(id, patch, { notities: body.notities });
     for (const [kind, f] of signals) v.learner.signal(updated, kind, f);
     if (correction) v.learner.correction(meta, correction.from, updated.map);
     refreshItems();
-    if (S.detail?.id === id) S.detail = { ...S.detail, ...decorate(updated), notities: body.notities ?? S.detail.notities };
+    if (S.detail?.id === id) S.detail = detailWith(updated, { notities: body.notities ?? S.detail.notities });
     renderList();
     renderDetail();
     return updated;
@@ -1772,7 +1907,7 @@ async function saveInput(input) {
 function pickWeek() {
   const week = Date.now() - 7 * 864e5;
   const best = S.items
-    .filter((i) => i.status !== 'archief' && i.status !== 'gebruikt' && new Date(i.opgeslagen).getTime() > week)
+    .filter((i) => i.status !== 'archief' && i.status !== 'gebruikt' && !isLeren(i) && new Date(i.opgeslagen).getTime() > week)
     .sort((a, b) => b.rank - a.rank)
     .slice(0, 4);
   if (!best.length) return toast('Geen nieuwe items van deze week');
@@ -1792,6 +1927,10 @@ async function buildCurrentPrompt() {
     profiel: S.vault.system['profiel.md'],
     stijl: S.vault.system['stijl.md'],
     eerder: earlierAbout(S.vault.content, onderwerpen, { exclude: own }),
+    lessen: await Promise.all([...S.lessen].filter((id) => S.vault.has(id)).map(async (id) => {
+      const { meta, body } = await S.vault.get(id);
+      return { titel: meta.titel, auteur: meta.auteur, tekst: lessonsOf(body) };
+    })),
   });
   S.resultaat = '';
 }
@@ -1933,7 +2072,7 @@ async function editHighlights(change) {
     const updated = await S.vault.update(id, {}, { transform: (b) => (body = withHighlights(b, change(parseHighlights(b)))) });
     S.reviewHl.delete(id);
     refreshItems();
-    if (S.detail?.id === id) S.detail = { ...S.detail, ...decorate(updated), body };
+    if (S.detail?.id === id) S.detail = detailWith(updated, { body });
     renderList();
     renderDetail();
     return updated;
@@ -2079,7 +2218,7 @@ const actions = {
   },
   'pick-week': pickWeek,
   'pick-stars': () => {
-    S.items.filter((i) => i.ster && i.status !== 'archief').slice(0, 8).forEach((i) => S.selected.add(i.id));
+    S.items.filter((i) => i.ster && i.status !== 'archief' && !isLeren(i)).slice(0, 8).forEach((i) => S.selected.add(i.id));
     render();
   },
   filter: (el) => {
@@ -2182,6 +2321,54 @@ const actions = {
     await copy(S.prompt, fresh ? 'Gekopieerd. De bronnen staan nu in je content-archief' : 'Prompt gekopieerd, plak hem in je chat', fresh ? { soort: 'ok', actie: undoCurrentProduction } : undefined);
     recordProduction().catch((e) => toast(e.message));
   },
+  doel: (el) => {
+    S.doel = el.dataset.v === 'leren' ? 'leren' : 'posten';
+    local.set('cm_doel', S.doel);
+    renderList();
+  },
+  'set-doel': async (el) => {
+    const id = S.detail.id;
+    const naar = el.dataset.v === 'leren' ? 'leren' : 'posten';
+    if (naar === (isLeren(S.detail) ? 'leren' : 'posten')) return;
+    if (naar === 'leren') S.selected.delete(id);
+    const m = await patchItem(id, { doel: naar });
+    if (m) toast(naar === 'leren' ? 'Staat nu bij Om van te leren. De machine leert hiervan.' : 'Staat weer bij Om te posten', {
+      actie: () => patchItem(id, { doel: naar === 'leren' ? 'posten' : 'leren' }),
+    });
+  },
+  'edit-title': () => {
+    S.titelEdit = true;
+    renderDetail();
+    const input = $('#title-input');
+    input?.focus();
+    input?.select();
+  },
+  'cancel-title': () => {
+    S.titelEdit = false;
+    renderDetail();
+  },
+  'save-title': () => saveTitle(),
+  'lesson-chat': async (el) => {
+    const prompt = buildLessonPrompt({ item: detailSource(S.detail), profiel: S.vault.system['profiel.md'] });
+    const links = chatLinks(prompt);
+    // Open first: iOS blocks pop-ups that come after an await.
+    const win = window.open(links[el.dataset.v], '_blank');
+    await copy(prompt, 'Prompt gekopieerd. Plak het antwoord daarna bij Lessen.');
+    if (!win) location.href = links[el.dataset.v];
+  },
+  'lesson-copy': () => copy(buildLessonPrompt({ item: detailSource(S.detail), profiel: S.vault.system['profiel.md'] }), 'Prompt gekopieerd. Plak het antwoord daarna bij Lessen.'),
+  'use-lessons': () => {
+    S.lessen.add(S.detail.id);
+    S.prompt = '';
+    go('#/studio');
+    toast('Lessen staan klaar bij Technieken toepassen. Kies nu bronnen en een vorm.');
+  },
+  'toggle-les': (el) => {
+    const id = el.dataset.id;
+    S.lessen.has(id) ? S.lessen.delete(id) : S.lessen.add(id);
+    S.prompt = '';
+    render();
+  },
   'open-chat': async (el) => {
     const links = chatLinks(S.prompt);
     // Open first: iOS blocks pop-ups that come after an await.
@@ -2280,7 +2467,7 @@ const actions = {
   },
   'prompt-bundel': async () => {
     const model = bundleModel();
-    const items = S.items.filter((i) => i.map === S.map && i.status !== 'archief' && bundleOf(i, model)?.naam === S.bundel)
+    const items = S.items.filter((i) => i.map === S.map && i.status !== 'archief' && !isLeren(i) && bundleOf(i, model)?.naam === S.bundel)
       .sort((a, b) => b.rank - a.rank).slice(0, 8);
     if (!items.length) return toast('Geen items in deze bundel');
     S.selected = new Set(items.map((i) => i.id));
@@ -2539,6 +2726,7 @@ document.addEventListener('click', (ev) => {
 });
 
 let notesTimer;
+let lessenTimer;
 document.addEventListener('input', (ev) => {
   const t = ev.target;
   if (t.id === 'add-input') {
@@ -2553,6 +2741,12 @@ document.addEventListener('input', (ev) => {
     S.instructie = t.value;
   } else if (t.id === 'resultaat') {
     S.resultaat = t.value;
+  } else if (t.id === 'lessen') {
+    const id = S.detail.id;
+    S.detail.lessenTekst = t.value;
+    $('#lessen-state').textContent = 'typen...';
+    clearTimeout(lessenTimer);
+    lessenTimer = setTimeout(() => saveLessons(id, t.value), 900);
   } else if (t.id === 'notes') {
     const id = S.detail.id;
     $('#notes-state').textContent = 'typen...';
@@ -2591,6 +2785,12 @@ document.addEventListener('change', async (ev) => {
 // Keys: arrows in the quick sort, Cmd+Enter saves what you typed in the add sheet.
 document.addEventListener('keydown', (ev) => {
   const typing = ev.target.closest?.('input, textarea, select, [contenteditable]');
+  if (ev.target.id === 'title-input' && (ev.key === 'Enter' || ev.key === 'Escape')) {
+    ev.preventDefault();
+    if (ev.key === 'Enter') saveTitle();
+    else actions['cancel-title']();
+    return;
+  }
   if (ev.target.id === 'video-url' && ev.key === 'Enter') {
     ev.preventDefault();
     findVideo();

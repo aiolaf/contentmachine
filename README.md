@@ -141,7 +141,7 @@ In Obsidian klik je op een #hashtag in dat bestand om alle items met die hashtag
 
 ## Video downloaden
 
-Video's van **X, TikTok, Instagram en LinkedIn** bewaar je op je iPhone of Mac, zonder de rare downloadsites. Foto's ook: van X, TikTok en Instagram.
+Video's van **X, TikTok, Instagram, Threads en LinkedIn** bewaar je op je iPhone of Mac, zonder de rare downloadsites. Foto's ook: van X, TikTok, Instagram en Threads.
 
 - **In de app:** op de Mac in de zijbalk (**Video en foto's**), op de iPhone via het plusje en **Video**. Bij elke post van die platforms staat ook een downloadknop.
 - **Vanuit het deelmenu:** onder Instellingen download je een tweede opdracht, **Videodownloader**. Deel een post, en de downloader opent met de video klaar. Er staat geen token in en hij werkt ook zonder gekoppelde vault.
@@ -155,6 +155,7 @@ Je ziet de video eerst, dan download je hem met een voortgangsbalk. Op de iPhone
 | X | fxtwitter (gratis API, de beste kwaliteit) | ja |
 | TikTok | tikwm (gratis API, zonder watermerk; slideshows als losse foto's) | meestal |
 | Instagram | de openbare insluitpagina, via Jina Reader; foto's via de beeldproxy wsrv.nl | alleen openbare posts, niet altijd |
+| Threads | de openbare postpagina (en anders de insluitpagina), via Jina Reader; foto's via wsrv.nl | alleen openbare posts, niet altijd |
 | LinkedIn | de openbare insluitpagina, via Jina Reader | alleen openbare posts, niet altijd |
 
 Die diensten zien de link. Alleen voor eigen gebruik: wil je een video van een ander posten, vraag dan eerst toestemming.
@@ -237,6 +238,27 @@ Tik op **Kopieer en open Claude** (of ChatGPT) en plak. Wil je het resultaat bew
 
 Heb je hier eerder content over gemaakt, dan staat dat in de prompt onder "Wat ik hier eerder over maakte", met de vraag om een nieuwe invalshoek.
 
+## Om te posten of om van te leren
+
+Niet alles wat je bewaart is materiaal voor een post. Een video van Kallaway over storytelling bewaar je niet om erover te posten, maar om te leren hoe hij het doet. Daarom heeft elk item een doel:
+
+- **Om te posten**: materiaal voor je eigen content, zoals nieuws, cases en meningen. Dit is de gewone feed.
+- **Om van te leren**: hoe een andere maker het doet. Bovenaan de feed schakel je tussen de twee; zoeken kijkt altijd in allebei.
+
+Op elk item kies je het met twee knoppen onder de titel. Nieuwe links over het maken van content (storytelling, copywriting, hooks, kijkduur en dergelijke) komen vanzelf bij **Om van te leren**. Zet je een paar items zelf om, dan leert de app daarvan, net als bij mappen. Eigen woorden geef je op met een regel `Leren: woord, woord` in `_systeem/regels.md`; die regel vervangt dan de standaardwoorden en wordt geen map.
+
+Een item om van te leren heeft geen knoppen voor content, maar het paneel **Leer ervan**:
+
+1. **Kopieer prompt en open Claude** (of ChatGPT). De prompt vraagt om de lessen als korte regels die je kunt toepassen, alleen uit wat de maker echt zegt, plus drie manieren om ze in je eigen content te gebruiken. Bij een video heeft Claude de tekst nodig: zet het transcript in **Mijn notities**, dan gaat het mee. Staat er geen transcript, dan vraagt Claude erom in plaats van te raden.
+2. Plak het antwoord bij **Lessen**, of schrijf ze zelf. Ze komen in de notitie onder `## Lessen` en het aantal staat op de kaart.
+3. **Pas toe in de Studio**: in de Studio kies je onder **Technieken toepassen** welke lessen meegaan. Je prompt krijgt dan een stuk "Technieken die ik wil toepassen", met de vraag ze te gebruiken zonder de technieken of makers te noemen.
+
+In Obsidian staat het doel als eigenschap `doel: leren`. Zonder die eigenschap is een item om te posten.
+
+## Titels aanpassen
+
+Tik op het potloodje naast de titel van een item. De bestandsnaam in Obsidian verandert mee, en de links ernaar in `Concepten/` ook. Ongedaan maken kan vanuit de melding.
+
 ## Content-archief
 
 Zodra je een prompt kopieert (of opent in Claude of ChatGPT), worden de gekozen bronnen samen één stuk content:
@@ -311,7 +333,8 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | `lib/highlights.js` | markeringen met notities |
 | `lib/review.js` | Vandaag: dagelijkse herhaling |
 | `lib/content.js` | content-archief: onderwerpen, statistiek, eerder gemaakt |
-| `lib/video.js` | video- en fotobestanden vinden achter posts op X, TikTok, Instagram en LinkedIn |
+| `lib/video.js` | video- en fotobestanden vinden achter posts op X, TikTok, Instagram, Threads en LinkedIn |
+| `lib/lessons.js` | lessen van items om van te leren |
 | `lib/prompts.js` | prompt-generator |
 | `lib/haiku.js` | optionele Claude Haiku-stap |
 | `lib/frontmatter.js` | YAML-eigenschappen lezen en schrijven |
