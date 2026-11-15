@@ -177,12 +177,18 @@ In Obsidian klik je op een #hashtag in dat bestand om alle items met die hashtag
 
 ## Video downloaden
 
-Video's van **X, TikTok, Instagram, Threads, LinkedIn en YouTube** bewaar je op je iPhone of Mac, zonder de rare downloadsites. Foto's ook: van X, TikTok, Instagram en Threads.
+Video's van **X, TikTok, Instagram, Threads, LinkedIn en YouTube** bewaar je op je iPhone of Mac, zonder de rare downloadsites. Foto's ook: van X, TikTok, Instagram, Threads en LinkedIn. Een gewone webpagina kan ook: dan krijg je de afbeeldingen en video's die erop staan.
 
 - **In de app:** op de Mac in de zijbalk (**Video en foto's**), op de iPhone via het plusje en **Video**. Bij elke post van die platforms staat ook een downloadknop.
 - **Vanuit het deelmenu:** onder Instellingen download je een tweede opdracht, **Videodownloader**. Deel een post, en de downloader opent met de video klaar. Er staat geen token in en hij werkt ook zonder gekoppelde vault.
 
-Je ziet de video eerst, dan download je hem met een voortgangsbalk. Op de iPhone kies je daarna **Bewaar video** (Foto's) of **Bewaar in Bestanden**; op de Mac komt hij in Downloads. Lukt direct downloaden niet, dan opent de app de video zodat je hem zelf bewaart.
+Je ziet de video eerst, dan download je hem met een voortgangsbalk; met **Stop** breek je een download af. Op de iPhone kies je daarna **Bewaar video** (Foto's) of **Bewaar in Bestanden**; op de Mac komt hij in Downloads. Lukt direct downloaden niet, dan opent de app de video zodat je hem zelf bewaart.
+
+**Kies de kwaliteit.** Bij een video op X, TikTok of LinkedIn staan de beschikbare formaten onder het voorbeeld, met de grootte erbij. De beste staat voor; kies een kleinere als je opslag wilt sparen. Bij TikTok kan ook **alleen geluid** (mp3). Met **Bewaar omslag** haal je het voorbeeldplaatje van een video op, handig als voorbeeld voor je eigen thumbnail.
+
+**Deel-links werken ook.** Links als `instagram.com/share/...`, `threads.com/share/...` en `lnkd.in/...` leiden naar de echte post; de app zoekt die eerst op. Geeft fxtwitter geen antwoord, dan probeert de app vxtwitter.
+
+**Laatst gedownload.** Onder het invoerveld staan de laatste acht posts die je hebt gedownload. Een tik opent de post opnieuw. De lijst staat alleen op dit apparaat en je wist hem met een tik.
 
 **YouTube in de kwaliteit die je wilt.** Bij een YouTube-link kies je zelf de kwaliteit, met de grootte erbij, zodat je een video ook heel klein binnenhaalt. **Alleen geluid** is het kleinst, handig voor een podcast of talk.
 
@@ -190,16 +196,17 @@ Je ziet de video eerst, dan download je hem met een voortgangsbalk. Op de iPhone
 - Met een eigen [Cobalt](https://github.com/imputnet/cobalt)-server krijg je elke kwaliteit: 144p, 240p, 360p, 480p, 720p, 1080p en alleen geluid (mp3). Cobalt is gratis software die je op een kleine server zet. Vul het adres (en een API-sleutel als je server die vraagt) in onder Instellingen, *Video's downloaden vanuit je deelmenu*. Ze blijven op je apparaat en gaan alleen naar die server.
 - Op je Mac werkt **yt-dlp** altijd. Eenmalig `brew install yt-dlp ffmpeg`, daarna geeft de app per kwaliteit een kant-en-klare regel voor Terminal; het bestand komt in Downloads. Antwoordt geen server, dan kies je de kwaliteit voor die regel.
 
-**Foto's, slideshows en carrousels.** Deel je een foto-post op X, een foto-slideshow op TikTok of een carrousel op Instagram, dan zie je alle slides in een stripje onder het voorbeeld, met een videotje erop als een slide een video is. **Download alles** haalt ze in een keer op; op de iPhone bewaar je ze dan samen in Foto's. Foto's van X komen in de originele grootte. Instagram en TikTok geven hun foto's niet aan andere sites, dus die komen zo nodig via de gratis beeldproxy wsrv.nl. Krijgt Instagram de volledige postdata niet mee, dan zie je alleen de foto die de insluitpagina toont.
+**Foto's, slideshows en carrousels.** Deel je een foto-post op X, een foto-slideshow op TikTok of een carrousel op Instagram, dan zie je alle slides in een stripje onder het voorbeeld, met een videotje erop als een slide een video is. **Download alles** haalt ze in een keer op; op de iPhone bewaar je ze dan samen in Foto's. Op de Mac komen meer dan twee bestanden als een zip in Downloads (tot 400 MB), met een knop om ze toch los op te slaan. Met **Kopieer foto** zet je een foto op je klembord, om hem meteen in een post te plakken. Foto's van X komen in de originele grootte. Instagram en TikTok geven hun foto's niet aan andere sites, dus die komen zo nodig via de gratis beeldproxy wsrv.nl. Krijgt Instagram de volledige postdata niet mee, dan zie je alleen de foto die de insluitpagina toont.
 
 | Platform | Hoe | Betrouwbaar |
 | --- | --- | --- |
-| X | fxtwitter (gratis API, de beste kwaliteit) | ja |
-| TikTok | tikwm (gratis API, zonder watermerk; slideshows als losse foto's) | meestal |
+| X | fxtwitter, met vxtwitter als reserve (gratis API's, elke kwaliteit) | ja |
+| TikTok | tikwm (gratis API, zonder watermerk; HD, standaard of alleen geluid; slideshows als losse foto's) | meestal |
 | Instagram | de openbare insluitpagina, via Jina Reader; foto's via de beeldproxy wsrv.nl | alleen openbare posts, niet altijd |
 | Threads | de openbare postpagina (en anders de insluitpagina), via Jina Reader; foto's via wsrv.nl | alleen openbare posts, niet altijd |
 | YouTube | openbare Piped- of Invidious-servers, of je eigen Cobalt-server; op de Mac yt-dlp | openbaar: wisselend, eigen server en yt-dlp: ja |
-| LinkedIn | de openbare insluitpagina, via Jina Reader | alleen openbare posts, niet altijd |
+| LinkedIn | de openbare postpagina (en anders de insluitpagina), via Jina Reader; video in de aangeboden formaten, foto's in de grootste versie | alleen openbare posts, niet altijd |
+| Webpagina | de pagina zelf, via Jina Reader; afbeeldingen via wsrv.nl | wisselend; logo's en iconen blijven weg |
 
 Die diensten zien de link. Alleen voor eigen gebruik: wil je een video van een ander posten, vraag dan eerst toestemming.
 
@@ -430,7 +437,8 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | `lib/highlights.js` | markeringen met notities |
 | `lib/review.js` | Vandaag: dagelijkse herhaling |
 | `lib/content.js` | content-archief: onderwerpen, statistiek, eerder gemaakt |
-| `lib/video.js` | video- en fotobestanden vinden achter posts op X, TikTok, Instagram, Threads, LinkedIn en YouTube |
+| `lib/video.js` | video- en fotobestanden vinden achter posts op X, TikTok, Instagram, Threads, LinkedIn en YouTube, en op gewone webpagina's |
+| `lib/zip.js` | meer bestanden als een zip, zonder compressie |
 | `lib/lessons.js` | lessen van items om van te leren |
 | `lib/prompts.js` | prompt-generator |
 | `lib/platforms.js` | tekst per kanaal: delen van een antwoord, tellers, open-links, de terugcode |

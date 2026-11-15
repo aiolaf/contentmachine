@@ -6,7 +6,8 @@ import { processCapture, processInbox, backfillPreviews, needsEnrich, reEnrich, 
 import { stories } from './lib/similar.js';
 import { embedFor } from './lib/embeds.js';
 import { buildShortcut, buildVideoShortcut, inboxApiUrl, SIGN_COMMAND, signCommand } from './lib/shortcut.js';
-import { findMedia, cobaltLink, ytdlpCommand, YT_FORMATEN } from './lib/video.js';
+import { findMedia, cobaltLink, ytdlpCommand, YT_FORMATEN, viaProxy } from './lib/video.js';
+import { zip, zipName } from './lib/zip.js';
 import { youtubeId, linkKey } from './lib/capture.js';
 import {
   parseBundles, stringifyBundles, autoBundle, pruneBundles, bundleOf, bundlesFor, setFolderBundles, renameFolderInBundles, OTHER,
@@ -81,7 +82,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '32 (15 nov 2026)';
+const VERSIE = '33 (15 nov 2026)';
 // The Teleprompter lives in teleprompter/ on the same site; it shows a link back here.
 const TELEPROMPTER_URL = 'teleprompter/?van=contentmachine';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
@@ -884,7 +885,7 @@ function openVideoRoute() {
   const url = new URLSearchParams(location.hash.split('?')[1] || '').get('url') || '';
   if (url && url !== S.video?.invoer) {
     S.video = emptyVideo(url);
-    findVideo();
+    findVideo(url);
   } else if (!S.video) S.video = emptyVideo();
 }
 
@@ -1137,7 +1138,7 @@ function detailHtml() {
       <button class="icon-btn ${d.oordeel === -1 ? 'on-bad' : ''}" data-action="vote" data-v="-1" data-pop="vote-1" aria-pressed="${d.oordeel === -1}" aria-label="Minder hiervan">${icon('down')}</button>
       <button class="icon-btn ${d.status === 'archief' ? 'on' : ''}" data-action="archive" aria-label="Archiveer">${icon('archive')}</button>
       ${origineel ? `<a class="btn" href="${esc(origineel)}" target="_blank" rel="noopener">${icon('external')}Origineel</a>` : ''}
-      ${VIDEO_TYPES.includes(d.type) && origineel ? `<button class="icon-btn" data-action="nav" data-href="#/video?url=${encodeURIComponent(d.url)}" aria-label="Download video of foto's" title="Download video of foto's">${icon('download')}</button>` : ''}
+      ${(VIDEO_TYPES.includes(d.type) || d.type === 'artikel') && origineel ? `<button class="icon-btn" data-action="nav" data-href="#/video?url=${encodeURIComponent(d.url)}" aria-label="${d.type === 'artikel' ? 'Download de afbeeldingen van deze pagina' : "Download video of foto's"}" title="${d.type === 'artikel' ? 'Download de afbeeldingen van deze pagina' : "Download video of foto's"}">${icon('download')}</button>` : ''}
       <button class="icon-btn" data-action="delete" aria-label="Verwijder">${icon('trash')}</button>
     </div>
     <div class="scorebox"><div class="big">${rollHtml(shown(d.rank), 'score')}</div><div class="why">${d.ordening === 'haiku' ? 'Geordend met Claude Haiku.' : d.ordening === BY_HAND ? 'Door jou in deze map gezet.' : d.ordening === UNSURE ? 'Nog geen map: de app is niet zeker.' : d.ordening ? `Map gekozen via ${esc(d.ordening)}.` : ''}<br><span class="small">Basis ${d.score} ${d.boost >= 0 ? '+' : ''}${d.boost} geleerd${d.ster ? ', +15 ster' : ''}${d.oordeel ? `, ${d.oordeel > 0 ? '+' : ''}${d.oordeel * 10} duim` : ''}</span></div></div>
@@ -1444,8 +1445,40 @@ function vandaagView() {
 
 // ---------- video downloader ----------
 const VIDEO_TYPES = ['tweet', 'tiktok', 'instagram', 'threads', 'linkedin', 'youtube'];
-const emptyDl = () => ({ staat: 'rust', loaded: 0, total: 0, n: 0, van: 1, files: [], mislukt: 0 });
-const emptyVideo = (invoer = '') => ({ invoer, staat: 'leeg', fout: '', info: null, keuze: 0, yKeuze: null, dl: emptyDl() });
+const emptyDl = () => ({ staat: 'rust', loaded: 0, total: 0, n: 0, van: 1, files: [], mislukt: 0, zip: null });
+// kw: the chosen quality for each video in the post, by its place in the post.
+const emptyVideo = (invoer = '') => ({ invoer, staat: 'leeg', fout: '', info: null, keuze: 0, yKeuze: null, kw: {}, dl: emptyDl() });
+// The download that is running, so it can be stopped.
+let videoAbort = null;
+
+// What you downloaded last, so a post is one tap away when you need it again.
+const DL_KEY = 'cm_downloads';
+function recentDownloads() {
+  try {
+    const list = JSON.parse(localStorage.getItem(DL_KEY) || '[]');
+    return Array.isArray(list) ? list.filter((x) => x && /^https:\/\//.test(x.url || '')) : [];
+  } catch {
+    return [];
+  }
+}
+function rememberDownload(info, wat) {
+  try {
+    const item = { url: info.url, platform: info.platform, titel: (info.titel || '').slice(0, 90), auteur: info.auteur || '', wat, op: Date.now() };
+    localStorage.setItem(DL_KEY, JSON.stringify([item, ...recentDownloads().filter((x) => x.url !== info.url)].slice(0, 8)));
+  } catch { /* a full or closed storage: the list is only a convenience */ }
+}
+
+// The file as it will be downloaded: for a video the quality you chose.
+function chosenMedia(v, n) {
+  const m = v.info.media[n];
+  const k = v.kw[n] || 0;
+  const q = m.kwaliteiten?.[k];
+  if (!q || !k) return m;
+  const audio = q.soort === 'audio';
+  const tag = audio ? 'geluid' : q.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return { ...m, soort: audio ? 'audio' : m.soort, url: q.url, grootte: q.grootte || 0, reserve: '', bestand: m.bestand.replace(/\.[a-z0-9]+$/i, `${tag ? `-${tag}` : ''}.${audio ? 'mp3' : 'mp4'}`) };
+}
+const kwMaat = (q) => (q.grootte ? `${q.schatting ? 'ca. ' : ''}${mb(q.grootte)}` : q.soort === 'audio' ? 'mp3' : '');
 const mb = (n) => `${(n / 1048576).toLocaleString('nl-NL', { maximumFractionDigits: 1 })} MB`;
 const duration = (sec) => (sec ? `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}` : '');
 // iPhone: the share sheet saves to Photos or Files. Mac: straight to Downloads.
@@ -1459,16 +1492,17 @@ function telling(media) {
   return [f ? `${f} foto${f === 1 ? '' : "'s"}` : '', v ? `${v} video${v === 1 ? '' : "'s"}` : ''].filter(Boolean).join(' en ');
 }
 
-const progressHtml = () => '<div class="dl"><div class="dl-bar"><span style="width:0%"></span></div><p class="small muted dl-text"></p></div>';
+const progressHtml = () => '<div class="dl"><div class="dl-bar"><span style="width:0%"></span></div><div class="dl-row"><p class="small muted dl-text"></p><button class="btn ghost small" data-action="video-cancel">Stop</button></div></div>';
 
 // Downloaded: the share sheet on the iPhone, Downloads on the Mac.
 function doneHtml(dl, mis = '') {
   const files = dl.files;
   const size = mb(files.reduce((t, f) => t + f.size, 0));
   const wat = files.length > 1 ? `${files.length} bestanden` : files[0].name;
-  return dl.delen
-    ? `<button class="btn primary block" data-action="video-save">${icon('download')}Bewaar in Foto's of Bestanden</button><p class="small muted">Klaar, ${files.length > 1 ? `${files.length} bestanden, ` : ''}${size}. Kies daarna <b>Bewaar</b>.${mis}</p>`
-    : `<p class="small"><b>Klaar.</b> ${esc(wat)} ${files.length > 1 ? 'staan' : 'staat'} in je Downloads (${size}).${mis}</p><button class="btn" data-action="video-save">${icon('download')}Nog een keer opslaan</button>`;
+  if (dl.delen) return `<button class="btn primary block" data-action="video-save">${icon('download')}Bewaar in Foto's of Bestanden</button><p class="small muted">Klaar, ${files.length > 1 ? `${files.length} bestanden, ` : ''}${size}. Kies daarna <b>Bewaar</b>.${mis}</p>`;
+  // On the Mac a post with many files comes as one zip.
+  if (dl.zip) return `<p class="small"><b>Klaar.</b> ${files.length} bestanden staan samen als ${esc(dl.zip.name)} in je Downloads (${size}).${mis}</p><div class="row"><button class="btn" data-action="video-save">${icon('download')}Nog een keer opslaan</button><button class="btn ghost" data-action="video-save" data-v="los">Als losse bestanden</button></div>`;
+  return `<p class="small"><b>Klaar.</b> ${esc(wat)} ${files.length > 1 ? 'staan' : 'staat'} in je Downloads (${size}).${mis}</p><button class="btn" data-action="video-save">${icon('download')}Nog een keer opslaan</button>`;
 }
 
 // "37 MB", "ca. 9,2 MB" or "ca. 2,6 MB per minuut".
@@ -1535,11 +1569,24 @@ function videoResultHtml(v) {
   const pick = info.media[v.keuze];
   const many = info.media.length > 1;
   const dl = v.dl;
-  const files = dl.files;
+  const kw = pick.kwaliteiten || [];
+  const k = kw[v.kw[v.keuze] || 0] ? v.kw[v.keuze] || 0 : 0;
+  const q = kw[k];
+  const audio = q?.soort === 'audio';
+  // "720p, ca. 5,2 MB"
+  const detail = q ? [audio ? '' : q.label, kwMaat(q)].filter(Boolean).join(', ') : pick.grootte ? mb(pick.grootte) : '';
+  const los = audio ? 'alleen geluid' : soortNaam(pick);
   let action = many
     ? `<button class="btn primary block" data-action="video-download" data-v="alles">${icon('download')}Download alles (${telling(info.media)})</button>
-      <button class="btn block" data-action="video-download" style="margin-top:8px">${icon('download')}Alleen deze ${soortNaam(pick)} (${v.keuze + 1} van ${info.media.length})</button>`
-    : `<button class="btn primary block" data-action="video-download">${icon('download')}Download ${soortNaam(pick)}${pick.grootte ? ` (${mb(pick.grootte)})` : ''}</button>`;
+      <button class="btn block" data-action="video-download" style="margin-top:8px">${icon('download')}${audio ? 'Alleen het geluid' : `Alleen deze ${soortNaam(pick)}`} (${v.keuze + 1} van ${info.media.length})</button>`
+    : `<button class="btn primary block" data-action="video-download">${icon('download')}Download ${los}${detail ? ` (${esc(detail)})` : ''}</button>`;
+  // What else you can do with this one file.
+  const canCopy = pick.soort === 'foto' && Boolean(navigator.clipboard?.write && window.ClipboardItem);
+  const extra = [
+    canCopy ? `<button class="btn ghost" data-action="video-copy-photo">${icon('copy')}Kopieer foto</button>` : '',
+    pick.soort === 'video' && pick.thumb ? `<button class="btn ghost" data-action="video-cover">${icon('download')}Bewaar omslag</button>` : '',
+  ].filter(Boolean).join('');
+  if (extra && dl.staat === 'rust') action += `<div class="row dl-extra">${extra}</div>`;
   if (dl.staat === 'laden') {
     action = progressHtml();
   } else if (dl.staat === 'klaar') {
@@ -1562,11 +1609,15 @@ function videoResultHtml(v) {
         ${m.soort === 'video' ? `<span class="media-badge">${icon('video')}</span>` : ''}
         <span class="media-nr">${n + 1}</span>
       </button>`).join('')}</div>` : '';
+  const kwaliteit = kw.length > 1 ? `<div class="field"><label>Kwaliteit</label>
+      <div class="quality-list" role="radiogroup" aria-label="Kwaliteit">${kw.map((x, i) => `<button role="radio" aria-checked="${i === k}" class="q ${i === k ? 'on' : ''}" data-action="video-kw" data-v="${i}">
+        <b>${esc(x.label)}</b><small>${esc(kwMaat(x))}</small></button>`).join('')}</div></div>` : '';
   return `<div class="panel video-result">
     <div class="card-top"><span class="type">${esc(info.platform)}</span>${info.auteur ? `<span>${esc(info.auteur)}</span>` : ''}${many ? `<span>${telling(info.media)}</span>` : ''}${duration(pick.duur) ? `<span>${duration(pick.duur)}</span>` : ''}</div>
     ${info.titel ? `<p class="video-title">${esc(info.titel)}</p>` : ''}
     ${preview}
     ${strip}
+    ${kwaliteit}
     ${action}
     ${S.ready && !S.items.some((i) => i.url === info.url) ? `<button class="btn ghost" data-action="video-vault">${icon('plus')}Bewaar de post ook in je vault</button>` : ''}
   </div>`;
@@ -1575,7 +1626,8 @@ function videoResultHtml(v) {
 function videoView() {
   const v = S.video || (S.video = emptyVideo());
   const busy = v.staat === 'zoeken';
-  return `<div class="topbar"><div style="flex:1;min-width:0"><span class="dateline">X, TikTok, Instagram, Threads, LinkedIn, YouTube</span><h1>Video en foto's downloaden</h1></div></div>
+  const recent = !v.info && !busy ? recentDownloads() : [];
+  return `<div class="topbar"><div style="flex:1;min-width:0"><span class="dateline">Video en foto's van X, TikTok, Instagram, Threads, LinkedIn, YouTube en webpagina's</span><h1>Downloaden</h1></div></div>
     <div class="video-input">
       <input id="video-url" type="url" inputmode="url" placeholder="Plak een link naar een post of video" value="${esc(v.invoer)}" autocapitalize="off" autocomplete="off">
       <button class="btn" data-action="video-paste">${icon('copy')}Plak</button>
@@ -1583,10 +1635,15 @@ function videoView() {
     <button class="gen block ${busy ? 'bezig' : ''}" data-action="video-find" ${busy ? 'aria-busy="true"' : ''}><span class="gen-ring" aria-hidden="true"></span><span class="gen-inner">${icon('search')}<span class="gen-text">${busy ? 'Zoeken...' : 'Zoek video of foto\'s'}</span></span></button>
     ${v.staat === 'fout' ? `<div class="panel error-panel"><b>Niet gelukt</b><p class="small">${esc(v.fout)}</p></div>` : ''}
     ${v.info ? videoResultHtml(v) : ''}
+    ${recent.length ? `<h3 class="section-title">Laatst gedownload</h3><div class="recent-dl">${recent.map((r) => `<button class="recent-item" data-action="nav" data-href="#/video?url=${encodeURIComponent(r.url)}">
+        <span class="type">${esc(r.platform || 'Link')}</span><span class="recent-title">${esc(r.titel || r.auteur || r.url.replace(/^https:\/\/(www\.)?/, ''))}</span><span class="small muted">${esc(r.wat || '')}</span></button>`).join('')}
+      <button class="btn ghost small" data-action="video-forget">Wis deze lijst</button></div>` : ''}
     <div class="panel video-help">
-      <div class="platforms"><span class="pf ok">X</span><span class="pf ok">TikTok</span><span class="pf maybe">Instagram</span><span class="pf maybe">Threads</span><span class="pf maybe">LinkedIn</span><span class="pf maybe">YouTube</span></div>
-      <p class="small muted">X en TikTok gaan via gratis diensten (fxtwitter, tikwm). Instagram, Threads en LinkedIn lezen we van de openbare post via Jina Reader; dat lukt niet bij elke post. Die diensten zien de link.</p>
-      <p class="small muted">Foto's werken ook: foto-posts op X en Threads, foto-slideshows op TikTok en carrousels op Instagram. Je krijgt alle slides en downloadt ze in een keer. Foto's komen zo nodig via de gratis beeldproxy wsrv.nl, omdat Instagram, Threads en TikTok ze niet aan andere sites geven.</p>
+      <div class="platforms"><span class="pf ok">X</span><span class="pf ok">TikTok</span><span class="pf maybe">Instagram</span><span class="pf maybe">Threads</span><span class="pf maybe">LinkedIn</span><span class="pf maybe">YouTube</span><span class="pf maybe">Webpagina</span></div>
+      <p class="small muted">X en TikTok gaan via gratis diensten (fxtwitter, met vxtwitter als reserve, en tikwm). Instagram, Threads en LinkedIn lezen we van de openbare post via Jina Reader; dat lukt niet bij elke post. Die diensten zien de link. Deel-links (instagram.com/share, threads.com/share, lnkd.in) werken ook.</p>
+      <p class="small muted">Foto's werken ook: foto-posts op X, Threads en LinkedIn, foto-slideshows op TikTok en carrousels op Instagram. Je krijgt alle slides en downloadt ze in een keer; op je Mac komen meer dan twee bestanden als een zip. Foto's komen zo nodig via de gratis beeldproxy wsrv.nl, omdat Instagram, Threads en TikTok ze niet aan andere sites geven.</p>
+      <p class="small muted">Kwaliteit: bij video's op X, TikTok en LinkedIn kies je zelf hoe groot het bestand wordt. Bij TikTok kan ook alleen het geluid. Een foto kopieer je met een tik naar je klembord, om meteen in een post te plakken.</p>
+      <p class="small muted">Een gewone webpagina kan ook: je krijgt de afbeeldingen en video's die op de pagina staan.</p>
       <p class="small muted">YouTube: je kiest zelf de kwaliteit, ook alleen geluid. Openbare Piped- of Invidious-servers geven 360p en alleen geluid, maar zijn niet altijd bereikbaar. Met een eigen Cobalt-server (Instellingen) krijg je elke kwaliteit, ook 144p. Op je Mac werkt yt-dlp altijd.</p>
       <p class="small muted">Alleen voor eigen gebruik. Wil je een video of foto van een ander posten, vraag dan eerst toestemming.</p>
     </div>`;
@@ -1602,8 +1659,10 @@ function paintProgress() {
   if (t) t.textContent = van > 1 ? `Downloaden: ${n + 1} van ${van}` : `Downloaden: ${mb(loaded)}${total ? ` van ${mb(total)}` : ''}`;
 }
 
-async function findVideo() {
-  const invoer = ($('#video-url')?.value ?? S.video?.invoer ?? '').trim();
+// With a link given, that link; otherwise what is typed in the field.
+async function findVideo(link) {
+  const invoer = (link ?? $('#video-url')?.value ?? S.video?.invoer ?? '').trim();
+  videoAbort?.abort();
   S.video = { ...emptyVideo(invoer), staat: 'zoeken' };
   render();
   try {
@@ -1619,14 +1678,14 @@ const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'im
 
 // One file, with progress. A photo that Instagram will not hand over directly
 // comes through the image proxy instead.
-async function fetchMedia(m, onProgress) {
+async function fetchMedia(m, onProgress, signal) {
   let res;
   try {
-    res = await fetch(m.url, { referrerPolicy: 'no-referrer' });
+    res = await fetch(m.url, { referrerPolicy: 'no-referrer', signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
   } catch (e) {
-    if (!m.reserve) throw e;
-    res = await fetch(m.reserve, { referrerPolicy: 'no-referrer' });
+    if (!m.reserve || signal?.aborted) throw e;
+    res = await fetch(m.reserve, { referrerPolicy: 'no-referrer', signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
   }
   const total = Number(res.headers.get('content-length')) || m.grootte || 0;
@@ -1649,7 +1708,8 @@ async function fetchMedia(m, onProgress) {
     return new File(chunks, name, { type });
   }
   if (m.soort === 'audio') {
-    const type = /^audio\//.test(header) ? header : 'audio/mp4';
+    // A file that is named .mp3 and comes without a type is an mp3.
+    const type = /^audio\//.test(header) ? header : /\.mp3$/i.test(m.bestand) ? 'audio/mpeg' : 'audio/mp4';
     const ext = { 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/webm': 'webm', 'audio/ogg': 'ogg' }[type];
     return new File(chunks, ext ? m.bestand.replace(/\.[a-z0-9]+$/i, `.${ext}`) : m.bestand, { type });
   }
@@ -1658,7 +1718,42 @@ async function fetchMedia(m, onProgress) {
 
 function downloadVideo(alles) {
   const v = S.video;
-  return downloadList(alles ? v.info.media : [v.info.media[v.keuze]]);
+  return downloadList(alles ? v.info.media.map((m, n) => chosenMedia(v, n)) : [chosenMedia(v, v.keuze)]);
+}
+
+// The cover of a video as a photo: handy as an example for your own thumbnail.
+function downloadCover() {
+  const m = S.video.info.media[S.video.keuze];
+  if (!m?.thumb) return null;
+  return downloadList([{ soort: 'foto', url: m.thumb, reserve: viaProxy(m.thumb), bestand: m.bestand.replace(/\.[a-z0-9]+$/i, '-omslag.jpg') }]);
+}
+
+// A photo on the clipboard as PNG, the one picture type every app takes.
+async function copyPhoto() {
+  const v = S.video;
+  const m = v?.info?.media[v.keuze];
+  if (!m || m.soort !== 'foto') return;
+  const png = (async () => {
+    const file = await fetchMedia(m, () => {});
+    if (file.type === 'image/png') return file;
+    const bmp = await createImageBitmap(file);
+    const c = Object.assign(document.createElement('canvas'), { width: bmp.width, height: bmp.height });
+    c.getContext('2d').drawImage(bmp, 0, 0);
+    return new Promise((ok, no) => c.toBlob((b) => (b ? ok(b) : no(new Error('leeg'))), 'image/png'));
+  })();
+  png.catch(() => {});
+  try {
+    try {
+      // Safari wants the promise itself, inside the tap.
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+    } catch (e) {
+      if (!(e instanceof TypeError)) throw e;
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': await png })]);
+    }
+    toast('Foto gekopieerd. Plak hem in je post.', { soort: 'ok' });
+  } catch {
+    toast('Kopiëren lukte niet. Download de foto.', { soort: 'fout' });
+  }
 }
 
 // A YouTube quality: straight from Piped or Invidious, or first a fresh link
@@ -1687,45 +1782,72 @@ async function downloadYouTube() {
 
 async function downloadList(list) {
   const v = S.video;
+  videoAbort?.abort();
+  const stop = (videoAbort = new AbortController());
   v.dl = { ...emptyDl(), staat: 'laden', van: list.length, total: list[0].grootte || 0 };
   render();
   paintProgress();
   const files = [];
   let mislukt = 0;
   for (const [n, m] of list.entries()) {
+    if (stop.signal.aborted) break;
     v.dl = { ...v.dl, n, loaded: 0, total: m.grootte || 0 };
-    paintProgress();
+    if (S.video === v) paintProgress();
     try {
       files.push(await fetchMedia(m, (loaded, total) => {
         v.dl = { ...v.dl, loaded, total };
-        paintProgress();
-      }));
+        if (S.video === v) paintProgress();
+      }, stop.signal));
     } catch {
       mislukt++;
     }
+  }
+  // Another link was opened in the meantime: this download is no longer wanted.
+  if (S.video !== v) return;
+  if (stop.signal.aborted) {
+    v.dl = emptyDl();
+    render();
+    toast('Download gestopt');
+    return;
   }
   if (!files.length) {
     v.dl = { ...emptyDl(), staat: 'fout', fout: v.info.youtube ? 'De server gaf het bestand niet door.' : '' };
     render();
     return;
   }
-  v.dl = { ...emptyDl(), staat: 'klaar', files, mislukt, delen: shareable(files) };
+  const delen = shareable(files);
+  v.dl = { ...emptyDl(), staat: 'klaar', files, mislukt, delen, zip: delen ? null : await zipOf(files) };
+  if (S.video !== v) return;
+  rememberDownload(v.info, v.info.youtube ? 'video' : telling(v.info.media));
   if (!v.dl.delen) saveVideoFile();
   render();
   burst($('.video-result [data-action=video-save]') || $('.video-result'), ['#ffe25c', '#2f8a57']);
 }
 
-async function saveVideoFile() {
-  const { files, delen } = S.video?.dl || {};
-  if (!files?.length) return;
+// More than two files on the Mac: one zip instead of a row of loose downloads.
+// Large sets stay loose, a zip is built in memory.
+async function zipOf(files) {
+  if (files.length < 3 || files.reduce((t, f) => t + f.size, 0) > 400 * 1048576) return null;
+  try {
+    const parts = zip(await Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }))));
+    return parts ? new File(parts, zipName(files[0].name), { type: 'application/zip' }) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveVideoFile(los = false) {
+  const { files: all, delen, zip: pack } = S.video?.dl || {};
+  if (!all?.length) return;
   if (delen) {
     try {
-      await navigator.share({ files });
+      await navigator.share({ files: all });
     } catch (e) {
       if (e.name !== 'AbortError') toast('Delen lukte niet. Probeer het nog eens.', { soort: 'fout' });
     }
     return;
   }
+  const files = pack && !los ? [pack] : all;
   // Browsers take several downloads in a row better with a short pause between them.
   for (const [n, file] of files.entries()) {
     if (n) await new Promise((r) => setTimeout(r, 400));
@@ -2524,7 +2646,7 @@ function render() {
   }
   if (!S.ready && S.view === 'video') {
     // The downloader needs no vault: it also works from the share sheet in Safari.
-    app.innerHTML = `<div class="shell"><main class="main" id="main" style="max-width:720px;margin:0 auto">${videoView()}</main></div>`;
+    app.innerHTML = `<div class="shell"><main class="main" id="main" style="width:100%;max-width:720px;margin:0 auto;box-sizing:border-box">${videoView()}</main></div>`;
     afterRender();
     return;
   }
@@ -3872,6 +3994,20 @@ const actions = {
     S.video.dl = emptyDl();
     render();
   },
+  'video-kw': (el) => {
+    S.video.kw = { ...S.video.kw, [S.video.keuze]: Number(el.dataset.v) };
+    S.video.dl = emptyDl();
+    render();
+  },
+  'video-cancel': () => videoAbort?.abort(),
+  'video-copy-photo': () => copyPhoto(),
+  'video-cover': () => downloadCover(),
+  'video-forget': () => {
+    try {
+      localStorage.removeItem(DL_KEY);
+    } catch { /* nothing to forget */ }
+    render();
+  },
   'video-download': (el) => downloadVideo(el.dataset.v === 'alles'),
   'yt-download': () => downloadYouTube(),
   'yt-pick': (el) => {
@@ -3879,7 +4015,7 @@ const actions = {
     S.video.dl = emptyDl();
     render();
   },
-  'video-save': () => saveVideoFile(),
+  'video-save': (el) => saveVideoFile(el.dataset.v === 'los'),
   'video-vault': async () => {
     try {
       const meta = await saveInput({ url: S.video.info.url });

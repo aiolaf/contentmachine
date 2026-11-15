@@ -791,7 +791,8 @@ test('video: finds the file behind posts on X, TikTok, Instagram and LinkedIn', 
   assert.equal(li.media[0].url, 'https://dms.licdn.com/hd.mp4', 'highest bitrate first');
   assert.equal(li.media[0].thumb, 'https://media.licdn.com/p.jpg');
 
-  await assert.rejects(findMedia('https://example.org/blog', { fetchImpl: fake }), /werkt voor X, TikTok, Instagram, Threads/);
+  await assert.rejects(findMedia('https://example.org/blog', { fetchImpl: fake }), /example\.org gaf geen antwoord/);
+  await assert.rejects(findMedia('https://example.org/rapport.pdf', { fetchImpl: fake }), /werkt voor X, TikTok, Instagram, Threads/);
   await assert.rejects(findMedia('geen link', { fetchImpl: fake }), /Plak een link/);
   assert.deepEqual(videosInHtml('<meta property="og:video" content="https://cdn.example.com/a.mp4"><video src="http://insecure/b.mp4">'), ['https://cdn.example.com/a.mp4']);
 });

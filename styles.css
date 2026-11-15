@@ -585,6 +585,14 @@ img.video-preview { height: auto; }
 .dl-bar { height: 10px; border-radius: 999px; background: var(--muted-bg); overflow: hidden; }
 .dl-bar span { display: block; height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, var(--mint), var(--sky)); transition: width .2s ease-out; }
 .dl-text { margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+.dl-row { display: flex; align-items: center; gap: 10px; }
+.dl-row .dl-text { flex: 1; min-width: 0; }
+.dl-extra { margin-top: 8px; flex-wrap: wrap; }
+.video-result .field { margin: 0 0 12px; }
+.recent-dl { display: grid; gap: 8px; margin: 0 0 16px; justify-items: start; }
+.recent-item { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; border: 1px solid var(--border); background: var(--card); color: var(--text); padding: 10px 12px; border-radius: 16px; font: inherit; text-align: left; cursor: pointer; }
+.recent-item:active { transform: scale(.99); }
+.recent-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .error-panel { background: var(--tint-rose); }
 .error-panel p { margin: 4px 0 0; }
 .video-help { margin-top: 18px; }

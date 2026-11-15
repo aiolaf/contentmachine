@@ -420,3 +420,114 @@ test('tidy: doubles keep the copy you did most with; a full Inbox suggests a fol
   ], ['Inbox', 'AI Agents', 'AI Nieuws']);
   assert.deepEqual(ideas, [{ tag: 'robots', ids: ['1', '2', '3', '4'], naam: 'Robots' }], 'a topic with a folder already needs none');
 });
+
+test('downloader: share links, qualities, LinkedIn photos and any page', async () => {
+  const { findMedia, linkedinPhotos, picturesInHtml } = await import('../lib/video.js');
+  const page = (html) => json({ data: { html } });
+  const calls = [];
+  const li = (id, kind, size) => `https://media.licdn.com/dms/image/v2/${id}/${kind}_${size}/B4E/0/1?e=1&amp;v=beta&amp;t=abc`;
+  const fake = async (url) => {
+    calls.push(url);
+    const target = url.replace('https://r.jina.ai/', '');
+    // X: several sizes of one video.
+    if (url.startsWith('https://api.fxtwitter.com/status/700')) {
+      return json({ tweet: { text: 'Demo', author: { screen_name: 'nina_ai' }, media: { videos: [{ url: 'https://video.twimg.com/x/vid/avc1/1280x720/hi.mp4', thumbnail_url: 'https://pbs.twimg.com/t.jpg', duration: 20, variants: [
+        { content_type: 'application/x-mpegURL', url: 'https://video.twimg.com/x/pl.m3u8' },
+        { content_type: 'video/mp4', bitrate: 256000, url: 'https://video.twimg.com/x/vid/avc1/480x270/lo.mp4' },
+        { content_type: 'video/mp4', bitrate: 2176000, url: 'https://video.twimg.com/x/vid/avc1/1280x720/hi.mp4' },
+        { content_type: 'video/mp4', bitrate: 832000, url: 'https://video.twimg.com/x/vid/avc1/640x360/mid.mp4' },
+      ] }] } } });
+    }
+    // X: the first service is down, the second answers.
+    if (url.startsWith('https://api.fxtwitter.com/status/701')) return new Response('down', { status: 502 });
+    if (url.startsWith('https://api.vxtwitter.com/Twitter/status/701')) return json({ text: 'Via de tweede dienst', user_screen_name: 'nina_ai', media_extended: [{ type: 'video', url: 'https://video.twimg.com/v/a.mp4', thumbnail_url: 'https://pbs.twimg.com/a.jpg', duration_millis: 12000 }, { type: 'image', url: 'https://pbs.twimg.com/media/Pic1.jpg' }] });
+    if (url.startsWith('https://api.vxtwitter.com/')) return new Response('nee', { status: 404 });
+    if (url.startsWith('https://www.tikwm.com/api/')) return json({ code: 0, data: { id: '7500', title: 'Tip', hdplay: '/video/hd.mp4', play: '/video/sd.mp4', hd_size: 9000000, size: 3000000, music: 'https://sf16.tiktokcdn.com/geluid.mp3', cover: '/c.jpg', duration: 30 } });
+    // Share links lead to the real post.
+    if (target.startsWith('https://www.instagram.com/share/reel/SHARE1')) return page('<link rel="canonical" href="https://www.instagram.com/reel/REAL1/" />');
+    if (target.startsWith('https://www.instagram.com/p/REAL1/embed')) return page('<script>x({"shortcode_media":{"id":"1","shortcode":"REAL1","is_video":true,"display_url":"https:\\/\\/scontent.cdninstagram.com\\/c.jpg","video_url":"https:\\/\\/scontent.cdninstagram.com\\/v.mp4"}});</script>');
+    if (target.startsWith('https://www.threads.com/share/TSHARE')) {
+      return page(`<meta property="og:url" content="https://www.threads.com/@nina.ai/post/TREAL"><script type="application/json">${JSON.stringify({ a: { thread_items: [{ post: { pk: '1', code: 'TREAL', user: { username: 'nina.ai' }, caption: { text: 'Een draadje' }, image_versions2: { candidates: [{ url: 'https://scontent.cdninstagram.com/t/a.jpg', width: 1080 }] } } }] } })}</script>`);
+    }
+    // LinkedIn: a short link; the post page has the video in two sizes and two photos in several sizes.
+    if (target.startsWith('https://lnkd.in/p/eVideo')) {
+      return page(`<a href="https://www.linkedin.com/posts/nina_agents-activity-7522939397776973824-62Wz">post</a>
+        <video poster="https://media.licdn.com/dms/image/v2/POSTER/videocover-high/B4E/0/1" data-sources="[]"></video>
+        <a href="https://dms.licdn.com/playlist/vid/v2/VID1/mp4-640p-30fp-crf28/B4E/0/1?e=1&amp;v=beta&amp;t=a">Video</a>
+        <a href="https://dms.licdn.com/playlist/vid/v2/VID1/mp4-720p-30fp-crf28/B4E/0/1?e=1&amp;v=beta&amp;t=b">Video</a>
+        <img src="${li('PROFIEL', 'profile-displayphoto-shrink', '100_100')}"><img src="${li('LOGO', 'company-logo', '100_100')}">
+        <img data-delayed-url="${li('FOTO1', 'feedshare-shrink', '800')}"><img src="${li('FOTO1', 'feedshare-shrink', '2048_1536')}"><img src="${li('FOTO2', 'feedshare-shrink', '1280')}">`);
+    }
+    if (target.startsWith('https://lnkd.in/p/eLeeg')) return page('<div>Sign in to view</div>');
+    // Any other page: its preview picture and its images, not its icons.
+    if (target.startsWith('https://nieuws.example.org/artikel')) {
+      return page(`<title>Agents in het mkb</title><meta property="og:image" content="https://nieuws.example.org/img/kop.jpg">
+        <img src="/img/logo.svg"><img src="/img/icon-small.png" width="32" height="32"><img src="https://nieuws.example.org/img/kop.jpg">
+        <img srcset="/img/grafiek-480.png 480w, /img/grafiek-1200.png 1200w" src="/img/grafiek-480.png"><img data-src="//cdn.example.org/foto.webp" width="900">
+        <video src="https://nieuws.example.org/video/uitleg.mp4"></video>`);
+    }
+    if (target.startsWith('https://leeg.example.org/')) return page('<p>Alleen tekst</p>');
+    return new Response('nee', { status: 404 });
+  };
+
+  const x = await findMedia('https://x.com/nina_ai/status/700', { fetchImpl: fake });
+  assert.deepEqual(x.media[0].kwaliteiten.map((q) => [q.label, q.url.split('/').pop(), q.grootte]), [['720p', 'hi.mp4', 5440000], ['360p', 'mid.mp4', 2080000], ['270p', 'lo.mp4', 640000]], 'best first, with a size to choose by');
+  assert.equal(x.media[0].url, 'https://video.twimg.com/x/vid/avc1/1280x720/hi.mp4');
+  const vx = await findMedia('https://x.com/nina_ai/status/701', { fetchImpl: fake });
+  assert.deepEqual(vx.media.map((m) => [m.soort, m.bestand]), [['video', 'x-701-1.mp4'], ['foto', 'x-701-2.jpg']]);
+  assert.equal(vx.titel, 'Via de tweede dienst');
+  await assert.rejects(findMedia('https://x.com/a/status/999', { fetchImpl: fake }), /niet gevonden/);
+
+  const tt = await findMedia('https://www.tiktok.com/@nina/video/7500', { fetchImpl: fake });
+  assert.deepEqual(tt.media[0].kwaliteiten.map((q) => [q.label, q.soort, q.grootte]), [['HD', undefined, 9000000], ['Standaard', undefined, 3000000], ['Alleen geluid', 'audio', undefined]]);
+
+  const ig = await findMedia('https://www.instagram.com/share/reel/SHARE1/', { fetchImpl: fake });
+  assert.deepEqual(ig.media.map((m) => [m.soort, m.url, m.bestand]), [['video', 'https://scontent.cdninstagram.com/v.mp4', 'instagram-REAL1.mp4']]);
+
+  const th = await findMedia('https://www.threads.com/share/TSHARE/', { fetchImpl: fake });
+  assert.deepEqual(th.media.map((m) => [m.soort, m.bestand]), [['foto', 'threads-TREAL.jpg']]);
+  assert.equal(th.auteur, '@nina.ai');
+  assert.equal(calls.filter((u) => u.includes('threads.com')).length, 1, 'the share page itself had the post');
+
+  const lv = await findMedia('https://lnkd.in/p/eVideo', { fetchImpl: fake });
+  assert.deepEqual(lv.media.map((m) => m.soort), ['video', 'foto', 'foto']);
+  assert.deepEqual(lv.media[0].kwaliteiten.map((q) => q.label), ['720p', '640p']);
+  assert.match(lv.media[0].url, /mp4-720p-30fp-crf28\/B4E\/0\/1\?e=1&v=beta&t=b$/);
+  assert.match(lv.media[1].url, /FOTO1\/feedshare-shrink_2048_1536\//, 'the largest version of a photo');
+  assert.match(lv.media[2].url, /FOTO2\/feedshare-shrink_1280\//);
+  assert.equal(lv.media[0].bestand, 'linkedin-7522939397776973824-1.mp4', 'named after the post behind the short link');
+  assert.deepEqual(linkedinPhotos(`${li('P', 'profile-displayphoto-shrink', '400_400')} ${li('A', 'articleshare-shrink', '800')}`), [], 'no profile photos or link previews');
+  await assert.rejects(findMedia('https://lnkd.in/p/eLeeg', { fetchImpl: fake }), /Geen video gevonden|geen video of foto/i);
+  await assert.rejects(findMedia('https://lnkd.in/p/eWeg', { fetchImpl: fake }), /LinkedIn gaf geen antwoord/);
+
+  const pg = await findMedia('https://nieuws.example.org/artikel?utm_source=x', { fetchImpl: fake });
+  assert.equal(pg.platform, 'nieuws.example.org');
+  assert.equal(pg.titel, 'Agents in het mkb');
+  assert.deepEqual(pg.media.map((m) => [m.soort, m.url]), [
+    ['video', 'https://nieuws.example.org/video/uitleg.mp4'],
+    ['foto', 'https://nieuws.example.org/img/kop.jpg'],
+    ['foto', 'https://nieuws.example.org/img/grafiek-1200.png'],
+    ['foto', 'https://cdn.example.org/foto.webp'],
+  ], 'the preview once, the widest of a set, no logo and no icon');
+  assert.match(pg.media[1].bestand, /^nieuws-\d{4}-\d{2}-\d{2}-2\.jpg$/);
+  await assert.rejects(findMedia('https://leeg.example.org/', { fetchImpl: fake }), /geen video of afbeeldingen/);
+  assert.deepEqual(picturesInHtml('<img src="data:image/png;base64,AAA"><img src="http://onveilig.example/a.jpg">', 'https://x.example/'), []);
+});
+
+test('zip: several files become one valid archive', async () => {
+  const { zip, crc32, zipName, ZIP_MAX } = await import('../lib/zip.js');
+  const enc = new TextEncoder();
+  assert.equal(crc32(enc.encode('hello')), 0x3610a686);
+  const parts = zip([{ name: 'foto-1.jpg', bytes: enc.encode('een') }, { name: 'foto-1.jpg', bytes: enc.encode('twee') }], new Date(2026, 10, 15, 14, 30));
+  const all = Buffer.concat(parts.map((p) => Buffer.from(p.buffer, p.byteOffset, p.byteLength)));
+  assert.equal(all.readUInt32LE(0), 0x04034b50, 'starts with a file');
+  const end = all.length - 22;
+  assert.equal(all.readUInt32LE(end), 0x06054b50, 'ends with the list of files');
+  assert.equal(all.readUInt16LE(end + 10), 2);
+  assert.equal(all.readUInt32LE(all.readUInt32LE(end + 16)), 0x02014b50, 'the list is where the end says it is');
+  assert.ok(all.includes(Buffer.from('foto-1-2.jpg')), 'a second file with the same name gets a number');
+  assert.equal(all.readUInt32LE(14), crc32(enc.encode('een')));
+  assert.equal(zip([]), null);
+  assert.equal(zip([{ name: 'groot', bytes: { length: ZIP_MAX + 1 } }]), null, 'too large for the plain format');
+  assert.deepEqual(['instagram-ABC-1.jpg', 'x-701-12.mp4', 'tiktok-7500.mp4', ''].map(zipName), ['instagram-ABC.zip', 'x-701.zip', 'tiktok-7500.zip', 'download.zip']);
+});
