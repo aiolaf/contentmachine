@@ -260,15 +260,51 @@ Elk signaal past de gewichten aan van de tags, map, bron, het type en de maker. 
 
 ## Content maken: de prompt-generator
 
-In de **Studio** kies je bronnen (het rondje op een kaart, of "Beste van deze week") en een vorm: LinkedIn post, post op X (met thread), Instagram (caption en reel), carrousel, TikTok script, nieuwsbrief of een vrije opdracht. Elke vorm heeft een vaste taal: **X en Instagram in het Engels, LinkedIn, carrousel en nieuwsbrief in het Nederlands**, ook als de bronnen in een andere taal zijn. De app bouwt een complete prompt met:
+In de **Studio** kies je bronnen (het rondje op een kaart, of "Beste van deze week") en een vorm: LinkedIn post, post op X (één post), thread op X, Threads, Instagram (caption en reel), carrousel, TikTok script, YouTube (titels, script en beschrijving), nieuwsbrief of een vrije opdracht. Elke vorm heeft een taal: **X, Threads, Instagram en YouTube in het Engels, LinkedIn, carrousel en nieuwsbrief in het Nederlands**, ook als de bronnen in een andere taal zijn. Onder Instellingen, **Mijn kanalen**, zet je de taal per kanaal anders. De app bouwt een complete prompt met:
 
 - je profiel (`_systeem/profiel.md`) en stijlgids (`_systeem/stijl.md`),
 - de opdracht per vorm, waaronder de vaste opbouw van je nieuwsbrief,
 - per bron de titel, link, samenvatting, **je eigen notities**, **je markeringen** en een fragment.
 
-Tik op **Kopieer en open Claude** (of ChatGPT) en plak. Wil je het resultaat bewaren? Plak het terug in de app, meteen of later.
+Tik op **Kopieer en open Claude** (of ChatGPT) en plak.
 
 Heb je hier eerder content over gemaakt, dan staat dat in de prompt onder "Wat ik hier eerder over maakte", met de vraag om een nieuwe invalshoek.
+
+### Het antwoord terug in de app
+
+Elke prompt eindigt met een korte code, bijvoorbeeld `cm-k7f2q`, en de vraag die onderaan het antwoord te zetten. Daarmee vindt het antwoord zijn plek terug:
+
+- **Plakken:** kopieer het antwoord in Claude of ChatGPT en ga terug naar de app. Er verschijnt een balk **Antwoord gekopieerd?** met de knop **Plak**. Dezelfde knop staat in de Studio en op het stuk zelf. Staat de prompt nog op je klembord, dan zegt de app dat.
+- **Delen op je iPhone:** kies bij het antwoord **Deel** en dan de opdracht **Contentmachine**. Het antwoord komt in je Inbox en de app zet het bij het juiste stuk zodra je hem opent, niet in je feed.
+
+Zonder code gaat het antwoord naar het stuk dat je open hebt, anders naar de laatste prompt die nog op een antwoord wacht. De code zelf zie je nergens terug.
+
+## Publiceren en bijhouden
+
+Een stuk content gaat door drie stappen: **wacht op resultaat**, **klaar om te posten** en **gepost**.
+
+**Per kanaal klaar om te plakken.** Zodra het antwoord binnen is, toont het stuk de tekst zoals het kanaal hem wil, zonder Markdown, met een teller:
+
+| Vorm | Wat je krijgt |
+| --- | --- |
+| LinkedIn post | de post met teller (3.000) en wat er in de feed staat voor "meer"; andere hooks, elk met **Gebruik als opening** |
+| Post op X, Threads | de post met de telling van het kanaal (280 of 500; op X telt een link als 23), andere versies, en **Open X met deze tekst** |
+| Thread op X | elke post apart met teller |
+| Instagram | caption met teller (2.200), reel-script met spreektijd |
+| TikTok, YouTube | het script met spreektijd en **Zet in Teleprompter**, de caption of beschrijving, titels |
+| Carrousel | elke slide apart, plus de begeleidende post |
+
+**Bewerk tekst** past de tekst aan, **Plak een nieuwe versie** vervangt hem. Onder **Maak er ook van** kies je een ander kanaal: de nieuwe prompt krijgt deze tekst mee als basis, zodat de kern gelijk blijft.
+
+**Gepost en cijfers.** Markeer een stuk als gepost, met de link naar je post. Voor X en TikTok haalt de app de cijfers zelf op (fxtwitter en tikwm) en ververst ze af en toe. LinkedIn, Instagram, Threads, YouTube en Substack laten cijfers alleen aan jou zien: die neem je over. Na twee dagen, en nog eens na een week, vraagt **Vandaag** om de cijfers.
+
+**Je eigen posts.** Vul onder **Mijn kanalen** je handle in. Deel je daarna een eigen post naar de app, dan komt die niet in je feed: het stuk waar hij van kwam gaat op gepost met die link. Een post die je niet in de app maakte, komt als gepost in je Content-archief, zodat je alles op één plek bijhoudt.
+
+**Weekritme.** Zet per kanaal hoe vaak je per week wilt posten. **Vandaag** toont per kanaal hoe ver je bent, wat klaarstaat om te posten en wat nog op een antwoord wacht.
+
+**Wat werkt.** Het Content-archief toont per kanaal wat je posts deden, je beste posts en de onderwerpen die het beter doen dan je gewone. Een post telt tegen het gewone van zijn eigen kanaal. Bronnen van een post die duidelijk beter scoort, stijgen in je feed.
+
+Kanalen, taal en weekdoelen staan in `_systeem/kanalen.json`, dus je iPhone en je Mac zijn het eens. In Obsidian zie je bij elk stuk in `Concepten/` de eigenschappen `status`, `gepost`, `link` en de cijfers.
 
 ## Om te posten of om van te leren
 
@@ -325,7 +361,8 @@ Contentmachine/
     stijl.md                hoe je schrijft, gaat mee in elke prompt
     index.json, leren.json  beheert de app zelf
     herhaling.json          de mix van Vandaag en wanneer elk item terugkomt
-    content.json            welke content je maakte, van welke bronnen en onderwerpen
+    content.json            welke content je maakte, van welke bronnen en onderwerpen, of het gepost is en wat het deed
+    kanalen.json            je kanalen: handle, taal en weekdoel
 ```
 
 Je notities onder **Mijn notities** en je **Markeringen** worden nooit overschreven. Verplaats, hernoem of bewerk gerust in Obsidian. Bij een conflict wint de versie die al op GitHub staat.
@@ -372,6 +409,8 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | `lib/video.js` | video- en fotobestanden vinden achter posts op X, TikTok, Instagram, Threads, LinkedIn en YouTube |
 | `lib/lessons.js` | lessen van items om van te leren |
 | `lib/prompts.js` | prompt-generator |
+| `lib/platforms.js` | tekst per kanaal: delen van een antwoord, tellers, open-links, de terugcode |
+| `lib/stats.js` | cijfers van een post op X of TikTok ophalen |
 | `lib/haiku.js` | optionele Claude Haiku-stap |
 | `lib/frontmatter.js` | YAML-eigenschappen lezen en schrijven |
 

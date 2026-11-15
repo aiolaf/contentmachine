@@ -581,7 +581,8 @@ test('content: topics, title, note and statistics of what you made', async () =>
   assert.match(body, /^# Claude en Duet\n\n> \[!todo\] Nog geen resultaat/);
   assert.match(body, /## Bronnen in de vault\n\n- \[\[A\]\]\n- \[\[B\]\]/);
   assert.match(body, /## Onderwerpen\n\n#claude #duet/);
-  assert.match(conceptBody({ titel: 'x', label: 'TikTok script', links: [], resultaat: '# Mijn post\n\nTekst' }), /^# Mijn post\n\nTekst\n\n## Bronnen/);
+  assert.match(conceptBody({ titel: 'x', label: 'TikTok script', links: ['- [[A]]'], resultaat: '# Mijn post\n\nTekst' }), /^# Mijn post\n\nTekst\n\n## Bronnen/);
+  assert.equal(conceptBody({ titel: 'x', label: 'Post op X', links: [], resultaat: '# Mijn post\n\nTekst' }), '# Mijn post\n\nTekst\n', 'a post without saved sources lists none');
 
   const prods = [
     { file: '1.md', datum: '2026-10-22T10:00:00Z', label: 'LinkedIn post', titel: 'Claude en Duet', onderwerpen: ['Claude', 'duet'] },
@@ -1015,7 +1016,8 @@ test('video: the share-sheet shortcut opens the downloader with the link', async
   assert.match(xml, /https:\/\/aiolaf\.github\.io\/contentmachine\/#\/video\?url=&#xFFFC;/);
   assert.doesNotMatch(xml, /github_pat|Authorization/, 'no token in the video shortcut');
   assert.match(signCommand('Videodownloader'), /--output "Ondertekend\/Videodownloader\.shortcut"/);
-  assert.match(buildPrompt({ soort: 'x', items: [] }), /maximaal 280 tekens[\s\S]*## Thread/);
+  assert.match(buildPrompt({ soort: 'x', items: [] }), /Maximaal 280 tekens[\s\S]*## Alternatives/);
+  assert.match(buildPrompt({ soort: 'xthread', items: [] }), /maximaal 280 tekens[\s\S]*## Thread/);
   // X and Instagram are always English, LinkedIn and the newsletter always Dutch.
   for (const soort of ['x', 'instagram']) assert.match(buildPrompt({ soort, items: [], stijl: '- Schrijf in het Nederlands.' }), /## Taal\n\nSchrijf alles in het Engels[^\n]*gaat voor wat mijn stijlgids/);
   for (const soort of ['linkedin', 'nieuwsbrief', 'carrousel']) assert.match(buildPrompt({ soort, items: [] }), /## Taal\n\nSchrijf alles in het Nederlands, ook als de bronnen/);
