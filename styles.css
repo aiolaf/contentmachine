@@ -794,3 +794,30 @@ body { overflow-x: clip; }
   .ed-preview { padding: 18px 18px 22px; font-size: 17px; }
   .ed-bar .btn { flex: 1 1 auto; justify-content: center; }
 }
+
+/* ---------- stacks: items on the same story ---------- */
+/* min-width: a grid item is at least as wide as its longest line, unless told otherwise. */
+.story { position: relative; margin-bottom: 4px; min-width: 0; max-width: 100%; }
+.story > .card { margin-bottom: 0; position: relative; z-index: 1; }
+.story::before, .story[data-n="3"]::after { content: ""; position: absolute; left: 12px; right: 12px; top: 8px; bottom: 34px; border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); opacity: .7; transform: translateY(8px) scale(.98); z-index: 0; }
+.story[data-n="3"]::after { left: 24px; right: 24px; opacity: .45; transform: translateY(15px) scale(.96); }
+.story.open::before, .story.open::after { display: none; }
+.story-foot { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 14px 6px 0 10px; min-width: 0; }
+.story-more { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--muted); cursor: pointer; text-align: left; padding: 6px 4px; border-radius: 12px; }
+.story-more > span:not(.chev):not(.faces) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.story-more .faces .thumb { width: 24px; height: 24px; border-radius: 8px; font-size: 11px; }
+.story-more .chev { display: inline-flex; transition: transform .2s; }
+.story-more .chev svg { width: 15px; height: 15px; }
+.story.open .story-more .chev { transform: rotate(180deg); }
+.story-pick { flex: none; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border-strong); background: var(--card); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 999px; cursor: pointer; }
+.story-pick svg { width: 13px; height: 13px; }
+.story-pick.on { background: var(--text); border-color: var(--text); color: #fff; }
+.story-cards { margin: 10px 0 0 14px; padding-left: 12px; border-left: 2px solid var(--tint-lav); animation: fan .2s ease-out; min-width: 0; }
+.story-cards .card { min-width: 0; }
+.story-cards .card:last-child { margin-bottom: 0; }
+.chip.stapel-chip { display: inline-flex; align-items: center; gap: 5px; }
+.chip.stapel-chip svg { width: 14px; height: 14px; }
+.chip.stapel-chip.active { color: var(--text); }
+
+.idea { background: linear-gradient(160deg, var(--tint-peach), #fff 72%); margin-bottom: 14px; }
+.idea p { margin: 0 0 6px; }

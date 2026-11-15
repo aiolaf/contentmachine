@@ -132,11 +132,22 @@ De titel van een post is zijn eerste zin. Geeft de bron geen tekst, dan heet het
 Onder **Mappen** staat een kaart **Opschonen** zodra er iets te doen is. Er gebeurt niets tot je op **Schoon op** tikt; de kaart zegt vooraf wat er verandert:
 
 - Posts die eerder zonder tekst zijn bewaard, krijgen hun tekst, een titel, een samenvatting en tags. Een notitie met een nieuwe titel krijgt ook een nieuwe bestandsnaam in Obsidian; links ernaar in `Concepten/` gaan mee. Je notities, markeringen en lessen blijven staan. De gratis leesdienst staat ongeveer twintig pagina's per minuut toe, dus bij veel items duurt dit een paar minuten.
+- Dubbel bewaarde items gaan naar het archief, op één exemplaar na.
 - Elk automatisch geplaatst item gaat naar de map waar het met de huidige regels hoort. Wat je zelf verplaatste en wat Haiku plaatste, blijft staan.
 - Heb je `regels.md` nooit aangepast, dan krijgt het de huidige standaardregels: meer woorden per map en een map **Design & Vibe Coding**. Regels die je zelf wijzigde, blijven zoals ze zijn.
 - Bundels en onderwerpen die uit platformwoorden bestonden ("Main content", "Photos"), verdwijnen.
 
-Na afloop zie je wat er verplaatst is. **Zet de mappen terug** herstelt de mappen en je oude regels. Geeft een bron ook na drie pogingen geen tekst, dan biedt de app dat item niet meer aan.
+Na afloop zie je wat er verplaatst is. **Zet alles terug** herstelt de mappen, de dubbelen en je oude regels. Geeft een bron ook na drie pogingen geen tekst, dan biedt de app dat item niet meer aan.
+
+## Stapels: hetzelfde verhaal bij elkaar
+
+Bewaar je vijf posts over dezelfde lancering, dan staan ze in de feed als één stapel: de beste bovenop, met eronder "3 meer over Claude Duet". Tik op die regel om de stapel open te klappen. **Kies alle** selecteert de hele stapel voor één prompt.
+
+De app zet items bij elkaar als hun woorden dicht bij elkaar liggen, of als ze dezelfde naam delen die maar weinig items hebben (een product, een modelversie) en binnen drie weken van elkaar zijn bewaard. Dat gebeurt zonder AI. Wat niets bindt: het platform, de sitenaam achter een streepje, een rubrieknaam voor een dubbele punt, grote merknamen op zichzelf en een samenvatting die alleen een inlogmuur is. Een stapel heeft hoogstens zeven items. Met de chip **Stapels** boven de feed zet je het uit; bij zoeken zie je altijd losse kaarten.
+
+Hetzelfde item twee keer bewaard (een andere volgcode in de link, of x.com en twitter.com) herkent de app bij het opslaan. Dubbelen van vroeger ruimt **Opschonen** op: het exemplaar waar je het meest mee deed blijft, de rest gaat naar het archief. Er wordt niets verwijderd.
+
+Staan er in je Inbox vier of meer items met dezelfde hashtag en is daar nog geen map voor, dan stelt **Mappen** een nieuwe map voor. Tik je op **Maak de map en verplaats ze**, dan komt er ook een regel in `regels.md`, zodat nieuwe items over dat onderwerp daar vanzelf komen.
 
 ## Bundels: ordenen op hashtags
 

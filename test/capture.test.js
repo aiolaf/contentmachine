@@ -6,7 +6,8 @@ import { captionInHtml, postInHtml, canonicalInHtml } from '../lib/postdata.js';
 import { fetchDetails, linkKey, normalizeUrl, refineSocial } from '../lib/capture.js';
 import { LocalStore } from '../lib/store.js';
 import { Vault } from '../lib/vault.js';
-import { processCapture, needsEnrich, reEnrich, resortPlan, wronglyLearning, handPlaced, ROUND } from '../lib/pipeline.js';
+import { processCapture, needsEnrich, reEnrich, resortPlan, wronglyLearning, handPlaced, duplicatePlan, folderIdeas, ROUND } from '../lib/pipeline.js';
+import { stories, sameText, sharedName } from '../lib/similar.js';
 import { classify, trainModel, parseRules, suggestTags, trusted, LEARNED, BY_HAND } from '../lib/classify.js';
 import { REGELS, REGELS_V1 } from '../lib/seeds.js';
 import { getSection } from '../lib/frontmatter.js';
@@ -356,4 +357,66 @@ test('offline: every file the app imports is in the service worker list', async 
   walk('app.js');
   const missing = [...seen].filter((f) => !shell.has(f));
   assert.deepEqual(missing, [], `not cached for offline use: ${missing}`);
+});
+
+test('stories: items on the same story stack, others stay apart', () => {
+  const day = (n) => `2026-11-${String(n).padStart(2, '0')}T10:00:00Z`;
+  const it = (id, titel, samenvatting = '', extra = {}) => ({ id, titel, samenvatting, tags: [], opgeslagen: day(10), ...extra });
+  const items = [
+    it('d1', 'Introducing Nova Duet', 'A new app where Nova works as a proactive agent. The preview opens by waitlist.'),
+    it('d2', 'Nova Duet onboarding', 'In case you are curious how it starts.'),
+    it('d3', 'Small detail, big feeling', 'In Nova Duet you swipe right to hand off a task.'),
+    it('d4', 'Nieuwe agent als antwoord op de concurrentie: Nova Duet-agent', 'Het bedrijf komt met een agent die zelf taken oppakt.'),
+    it('r1', 'Robot hond leert lopen in een dag', 'Onderzoekers trainden een robot met simulatie.'),
+    it('r2', 'Agents in het mkb: drie voorbeelden', 'Hoe kleine bedrijven agents inzetten voor planning.'),
+    // The same post saved twice, and the same announcement on two platforms.
+    it('x1', 'This changes everything.', 'Orion 5 just made a full game in one shot and I did it live.', { url: 'https://x.com/a/status/1' }),
+    it('x2', 'This changes everything.', 'Orion 5 just made a full game in one shot and I did it live.', { url: 'https://x.com/a/status/1?a=b' }),
+    // A site name, a series label and a big brand tie nothing together.
+    it('s1', 'Bank zet alle medewerkers op een AI-assistent | TechSite', 'Een grote bank rolt een assistent uit.'),
+    it('s2', 'Meeste bedrijven zien nog geen winst van AI | TechSite', 'Volgens een econoom levert AI nog weinig op.'),
+    it('v1', 'Weekcheck: Lumen zet een stap vooruit', 'Een test van het nieuwe model Lumen.'),
+    it('v2', 'Weekcheck: Kaart-app krijgt een agent', 'Een test van een heel ander product.'),
+    it('g1', 'Google brengt een zoekfunctie uit voor recepten', 'Koken wordt makkelijker.'),
+    it('g2', 'Google past zijn kantoorbeleid aan', 'Medewerkers komen vaker naar kantoor.'),
+    // The same name, but months apart: another story.
+    it('o1', 'Nova Duet krijgt een grote update', 'Nieuwe functies voor de agent.', { opgeslagen: '2027-03-01T10:00:00Z' }),
+    // A vault holds much more than one story.
+    ...['Zo schrijf je een hook die blijft hangen', 'Prijzen verhogen zonder klanten te verliezen', 'Een nieuwsbrief opzetten in een middag', 'Waarom vergaderingen korter kunnen',
+      'Stemherkenning op je eigen laptop', 'Wetgeving over data in de zorg', 'Een dashboard bouwen zonder code', 'Hoe een webwinkel zijn voorraad voorspelt',
+      'Camera kiezen voor korte video', 'Lessen uit een mislukte lancering', 'Sneller typen met spraak', 'Een chatbot voor de klantenservice testen']
+      .map((titel, n) => it(`z${n}`, titel, 'Een praktijkverhaal met een eigen onderwerp en eigen woorden.')),
+  ];
+  const groups = stories(items);
+  const of = (id) => groups.find((g) => g.ids.includes(id));
+  assert.deepEqual(of('d1').ids.sort(), ['d1', 'd2', 'd3', 'd4']);
+  assert.equal(of('d1').naam, 'Nova Duet', 'called after the name that ties it together');
+  assert.deepEqual(of('x1').ids.sort(), ['x1', 'x2']);
+  assert.equal(of('x1').naam, 'This changes everything.', 'doubles carry their title');
+  for (const id of ['r1', 'r2', 's1', 's2', 'v1', 'v2', 'g1', 'g2', 'o1']) assert.equal(of(id), undefined, `${id} stays apart`);
+  assert.equal(new Set(groups.map((g) => g.naam).filter(Boolean)).size, groups.filter((g) => g.naam).length, 'no two groups share a name');
+  // Two posts behind the same login wall are not the same story.
+  const wall = 'Agree & Join LinkedIn By clicking Continue to join or sign in, you agree to the User Agreement, Privacy Policy and Cookie Policy.';
+  const walled = stories([...items, it('w1', 'Een post over prijzen', wall), it('w2', 'Een heel andere post over werving', wall)]);
+  assert.equal(walled.find((g) => g.ids.includes('w1')), undefined);
+  assert.ok(sameText('Orion 5 just made a full game in one shot and I did it live on stream today', 'Orion 5 just made a full game in one shot and I did it live on stream today!') > 0.9);
+  assert.equal(sameText('kort', 'kort'), 0, 'too little to compare');
+  assert.equal(sharedName([{ titel: 'Introducing Nova Duet' }, { titel: 'Nova Duet onboarding' }, { titel: 'Iets anders' }]), 'Nova Duet');
+});
+
+test('tidy: doubles keep the copy you did most with; a full Inbox suggests a folder', () => {
+  const it = (id, url, extra = {}) => ({ id, url, titel: id, status: 'gelezen', opgeslagen: `2026-11-0${id.slice(-1)}T10:00:00Z`, tags: [], ...extra });
+  const items = [
+    it('a1', 'https://x.com/a/status/1'), it('a2', 'https://x.com/a/status/1?a=zz', { ster: true }), it('a3', 'https://twitter.com/a/status/1', { status: 'archief' }),
+    it('b1', 'https://www.instagram.com/reel/AAA/?igsh=1'), it('b2', 'https://www.instagram.com/p/AAA/', { status: 'gebruikt' }),
+    it('c1', 'https://example.org/een'), it('c2', 'https://example.org/twee'),
+  ];
+  assert.deepEqual(duplicatePlan(items), [{ keep: 'a2', drop: ['a1'] }, { keep: 'b2', drop: ['b1'] }]);
+  const inbox = (id, tags, extra = {}) => ({ id, map: 'Inbox', status: 'nieuw', tags, ...extra });
+  const ideas = folderIdeas([
+    inbox('1', ['robots', 'nvidia']), inbox('2', ['robots']), inbox('3', ['robots', 'reel']), inbox('4', ['robots']),
+    inbox('5', ['ai-agents']), inbox('6', ['ai-agents']), inbox('7', ['ai-agents']), inbox('8', ['ai-agents']), inbox('9', ['ai-agents']),
+    inbox('10', ['robots'], { status: 'archief' }), { id: '11', map: 'AI Nieuws', tags: ['robots'] },
+  ], ['Inbox', 'AI Agents', 'AI Nieuws']);
+  assert.deepEqual(ideas, [{ tag: 'robots', ids: ['1', '2', '3', '4'], naam: 'Robots' }], 'a topic with a folder already needs none');
 });

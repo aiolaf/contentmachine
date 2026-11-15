@@ -571,7 +571,9 @@ test('content: topics, title, note and statistics of what you made', async () =>
   const { onderwerpen, mappen } = topicsOf(posts, model);
   assert.deepEqual(onderwerpen, ['Claude', 'duet'], 'bundle first, then tags most sources share');
   assert.deepEqual(mappen, ['AI Nieuws']);
-  assert.equal(productionTitle(posts, onderwerpen), 'Claude en Duet');
+  assert.equal(productionTitle(posts, onderwerpen), 'Duet', 'the name most titles share');
+  assert.equal(productionTitle([{ titel: 'Eerste stuk', tags: ['agents', 'mkb'] }, { titel: 'Tweede stuk', tags: ['agents', 'mkb'] }], ['agents', 'mkb']), 'Agents en Mkb', 'no shared name: the hashtags they share');
+  assert.equal(productionTitle([{ titel: 'Eerste stuk', tags: ['a'] }, { titel: 'Tweede stuk', tags: ['b'] }], ['a']), 'Eerste stuk en 1 meer');
   assert.equal(productionTitle([posts[0]], []), 'Claude Duet is live');
   assert.equal(obsidianTag('Claude Duet'), '#claude-duet');
   assert.equal(obsidianTag('2026'), '');

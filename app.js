@@ -2,7 +2,8 @@
 // own GitHub repo (or on this device) and the browser talks to it directly.
 import { GitHubStore, LocalStore, parseRepoInput, cleanToken } from './lib/store.js';
 import { Vault } from './lib/vault.js';
-import { processCapture, processInbox, backfillPreviews, needsEnrich, reEnrich, resortPlan, wronglyLearning, handPlaced } from './lib/pipeline.js';
+import { processCapture, processInbox, backfillPreviews, needsEnrich, reEnrich, resortPlan, wronglyLearning, handPlaced, duplicatePlan, folderIdeas } from './lib/pipeline.js';
+import { stories } from './lib/similar.js';
 import { embedFor } from './lib/embeds.js';
 import { buildShortcut, buildVideoShortcut, inboxApiUrl, SIGN_COMMAND, signCommand } from './lib/shortcut.js';
 import { findMedia, cobaltLink, ytdlpCommand, YT_FORMATEN } from './lib/video.js';
@@ -80,7 +81,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '31 (15 nov 2026)';
+const VERSIE = '32 (15 nov 2026)';
 // The Teleprompter lives in teleprompter/ on the same site; it shows a link back here.
 const TELEPROMPTER_URL = 'teleprompter/?van=contentmachine';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
@@ -178,8 +179,12 @@ const S = {
   plakVeld: false,
   // The newsletter editor: { file, titel, ondertitel, tekst, tab, staat }.
   editor: null,
+  // Items on the same story show as one stack in the feed.
+  stapels: true,
+  openStories: new Set(),
 };
 const isLeren = (i) => i.doel === 'leren';
+const savePrefs = () => local.set('cm_prefs', { filter: S.filter, sort: S.sort, stapels: S.stapels });
 
 // A toast in the stack; pass { actie } for an "Ongedaan maken" button.
 const toast = (msg, opts) => showToast(msg, opts);
@@ -470,7 +475,7 @@ function sourceText(id) {
 function tidyCounts() {
   const tekst = S.items.filter(canEnrich).length;
   const plan = resortPlan(S.vault.list(), { rulesText: rulesOutdated() ? REGELS : S.vault.system['regels.md'], correcties: S.vault.learner.state.correcties, texts: new Map(S.items.map((i) => [i.id, sourceText(i.id)])) });
-  return { tekst, mappen: plan.filter((m) => m.van !== m.naar).length };
+  return { tekst, mappen: plan.filter((m) => m.van !== m.naar).length, dubbel: duplicatePlan(S.items).reduce((n, d) => n + d.drop.length, 0) };
 }
 
 // Everything at once: texts for posts that have none, then every
@@ -479,7 +484,7 @@ async function runTidy() {
   if (S.opschoon?.bezig) return;
   const v = S.vault;
   const todo = S.items.filter(canEnrich).map((i) => i.id);
-  const t = { bezig: true, fase: 'tekst', klaar: 0, totaal: todo.length, gevonden: 0, moves: [], stop: false, wacht: 0, regels: null };
+  const t = { bezig: true, fase: 'tekst', klaar: 0, totaal: todo.length, gevonden: 0, moves: [], stop: false, wacht: 0, regels: null, dubbel: [] };
   S.opschoon = t;
   if (rulesOutdated()) {
     t.regels = v.system['regels.md'];
@@ -511,6 +516,21 @@ async function runTidy() {
       t.gevonden += 1;
     } catch {
       // an invalid note keeps its tags
+    }
+  }
+  refreshItems();
+  // The same post saved twice: the copy you did most with stays, the rest
+  // goes to the archive (nothing is deleted).
+  for (const d of duplicatePlan(S.items)) {
+    for (const id of d.drop) {
+      if (!v.has(id)) continue;
+      const status = v.meta(id).status;
+      try {
+        await v.update(id, { status: 'archief' });
+        t.dubbel.push({ id, status });
+      } catch {
+        // an invalid note stays as it is
+      }
     }
   }
   refreshItems();
@@ -563,7 +583,8 @@ function retopic() {
 
 async function undoTidy() {
   const t = S.opschoon;
-  if (!t?.moves.length) return;
+  if (!t || (!t.moves.length && !t.dubbel.length && !t.regels)) return;
+  for (const d of t.dubbel) if (S.vault.has(d.id)) await S.vault.update(d.id, { status: d.status }).catch(() => {});
   for (const m of t.moves) {
     if (S.vault.has(m.id)) await S.vault.update(m.id, { map: m.van, ordening: m.ordening }).catch(() => {});
   }
@@ -572,7 +593,7 @@ async function undoTidy() {
   refreshItems();
   S.vault.flush().catch(() => {});
   render();
-  toast(t.regels ? 'De items staan weer in de map waar ze stonden, met je oude regels' : 'De items staan weer in de map waar ze stonden');
+  toast(t.regels ? 'Alles staat weer waar het stond, met je oude regels' : 'Alles staat weer waar het stond');
 }
 
 function paintTidy() {
@@ -602,28 +623,42 @@ function tidyHtml() {
     const inbox = S.items.filter((i) => i.map === 'Inbox').length;
     return `<div class="panel tidy" id="tidy">
       <h3>${icon('check')}Opgeschoond</h3>
-      <p class="small">${t.gevonden} item${t.gevonden === 1 ? ' kreeg' : 's kregen'} tekst, een titel of betere tags. ${t.moves.length} item${t.moves.length === 1 ? ' ging' : 's gingen'} naar een andere map.</p>
+      <p class="small">${t.gevonden} item${t.gevonden === 1 ? ' kreeg' : 's kregen'} tekst, een titel of betere tags. ${t.moves.length} item${t.moves.length === 1 ? ' ging' : 's gingen'} naar een andere map.${t.dubbel.length ? ` ${t.dubbel.length} dubbel${t.dubbel.length === 1 ? ' item ging' : 'e items gingen'} naar het archief.` : ''}</p>
       ${rows ? `<div class="stat-list">${rows}</div>` : ''}
       ${t.wacht ? `<p class="small muted">Voor ${t.wacht} item${t.wacht === 1 ? '' : 's'} gaf de bron nu geen tekst. De app probeert het later vanzelf opnieuw.</p>` : ''}
       ${inbox ? `<p class="small muted">${inbox} item${inbox === 1 ? ' staat' : 's staan'} in Inbox omdat de app niet zeker is. Open er een en tik op een voorgestelde map: daar leert de app het snelst van.</p>` : ''}
       <div class="make-row">
-        ${t.moves.length ? `<button class="btn ghost" data-action="tidy-undo">Zet de mappen terug</button>` : ''}
+        ${t.moves.length || t.dubbel.length || t.regels ? `<button class="btn ghost" data-action="tidy-undo">Zet alles terug</button>` : ''}
         <button class="btn" data-action="tidy-close">Klaar</button>
       </div>
     </div>`;
   }
   const c = tidyCounts();
   const regels = rulesOutdated();
-  if (!c.tekst && !c.mappen && !regels) return '<div id="tidy"></div>';
+  if (!c.tekst && !c.mappen && !c.dubbel && !regels) return '<div id="tidy"></div>';
   const parts = [];
   if (c.tekst) parts.push(`${c.tekst} bewaarde post${c.tekst === 1 ? ' heeft' : 's hebben'} nog geen tekst of echte titel`);
   if (c.mappen) parts.push(`${c.mappen} item${c.mappen === 1 ? ' staat' : 's staan'} waarschijnlijk in de verkeerde map`);
+  if (c.dubbel) parts.push(`${c.dubbel} item${c.dubbel === 1 ? ' is' : 's zijn'} dubbel bewaard`);
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} en ${parts.at(-1)}` : parts[0] || 'Je regels voor mappen kunnen worden bijgewerkt';
   return `<div class="panel tidy" id="tidy">
     <h3>${icon('sparkle')}Opschonen</h3>
-    <p class="small">${parts.join(' en ')}.</p>
-    <p class="small muted">De app haalt de tekst van die posts op, geeft ze een titel en tags, en zet elk automatisch geplaatst item in de map waar het hoort. Notities met een nieuwe titel krijgen ook een nieuwe bestandsnaam in Obsidian. Wat je zelf verplaatste blijft staan. ${regels ? 'Je regels voor mappen (regels.md) krijgen meer woorden per map en er komt een map <b>Design &amp; Vibe Coding</b> bij; je oude regels komen terug als je de mappen terugzet. ' : ''}${c.tekst > 10 ? `Dit duurt ongeveer ${Math.ceil((c.tekst * 3.5) / 60)} minuten; laat de app open.` : ''}</p>
+    <p class="small">${list}.</p>
+    <p class="small muted">De app haalt de tekst van die posts op, geeft ze een titel en tags, en zet elk automatisch geplaatst item in de map waar het hoort. Notities met een nieuwe titel krijgen ook een nieuwe bestandsnaam in Obsidian. Wat je zelf verplaatste blijft staan. ${c.dubbel ? 'Van dubbele items blijft het exemplaar waar je het meest mee deed; de rest gaat naar het archief. ' : ''}${regels ? 'Je regels voor mappen (regels.md) krijgen meer woorden per map en er komt een map <b>Design &amp; Vibe Coding</b> bij; je oude regels komen terug als je de mappen terugzet. ' : ''}${c.tekst > 10 ? `Dit duurt ongeveer ${Math.ceil((c.tekst * 3.5) / 60)} minuten; laat de app open.` : ''}</p>
     <button class="btn primary" data-action="tidy-start">${icon('sparkle')}Schoon op</button>
   </div>`;
+}
+
+// A topic that fills your Inbox and has no folder yet.
+function ideasHtml() {
+  if (S.opschoon?.bezig) return '';
+  const gone = new Set(local.get('cm_ideeen_weg', []));
+  const ideas = folderIdeas(S.items, S.vault.folders()).filter((x) => !gone.has(x.tag)).slice(0, 2);
+  return ideas.map((x) => `<div class="panel idea">
+    <p><b>Idee: een map ${esc(x.naam)}</b></p>
+    <p class="small muted">${x.ids.length} items in je Inbox gaan over #${esc(x.tag)}. Een eigen map houdt je Inbox klein. De app zet ook een regel in regels.md, zodat nieuwe items over dit onderwerp daar vanzelf komen.</p>
+    <div class="make-row"><button class="btn primary" data-action="idea-make" data-v="${esc(x.tag)}">${icon('folder')}Maak de map en verplaats ze</button><button class="btn ghost" data-action="idea-skip" data-v="${esc(x.tag)}">Niet nu</button></div>
+  </div>`).join('');
 }
 
 // The folders to offer for an item, best first, never the one it is in.
@@ -947,10 +982,54 @@ function listHtml() {
     ? `<button class="sort-banner" data-action="nav" data-href="#/sorteren"><span class="mini-deck" aria-hidden="true"><i></i><i></i><i></i></span><span class="sort-text"><b>${unread} ongelezen</b><small>Snel sorteren: veeg naar rechts of links</small></span><span class="chev-r">${icon('chevron')}</span></button>`
     : '';
   const hint = searching && S.tekst ? `<p class="small muted search-hint"><span class="spinner"></span>Volledige tekst laden: ${S.tekst.klaar} van ${S.tekst.totaal} notities. De resultaten vullen zich aan.</p>` : '';
+  if (items.length && S.stapels && !searching) return busy + banner + stackedHtml(items);
   const none = searching ? 'Niets gevonden, ook niet in de volledige tekst.'
     : S.doel === 'leren' && !S.items.some(isLeren) ? 'Nog niets om van te leren. Open een item, bijvoorbeeld een video over storytelling, en kies <b>Om van te leren</b>. Nieuwe links over het maken van content komen hier vanzelf.'
       : 'Niets gevonden met dit filter.';
   return busy + banner + hint + (items.length ? items.map(card).join('') : `<div class="empty"><p>${none}</p></div>`);
+}
+
+// Items on the same story as one stack: the best one on top, the rest behind
+// a line you tap open. Grouping is redone only when the items change.
+let storyMemo = { items: null, groups: [] };
+function storyGroups() {
+  if (storyMemo.items !== S.items) storyMemo = { items: S.items, groups: stories(S.items.filter((i) => !i.invalid && i.status !== 'archief')) };
+  return storyMemo.groups;
+}
+
+function stackedHtml(items) {
+  const shown = new Set(items.map((i) => i.id));
+  const groupOf = new Map();
+  for (const g of storyGroups()) {
+    const ids = g.ids.filter((id) => shown.has(id));
+    if (ids.length > 1) for (const id of ids) groupOf.set(id, { ...g, ids });
+  }
+  const done = new Set();
+  let html = '';
+  for (const i of items) {
+    if (done.has(i.id)) continue;
+    const g = groupOf.get(i.id);
+    if (!g) {
+      html += card(i);
+      continue;
+    }
+    // In the order of the list: the first one is the top of its stack.
+    const members = items.filter((x) => g.ids.includes(x.id));
+    members.forEach((x) => done.add(x.id));
+    const [top, ...rest] = members;
+    const open = S.openStories.has(top.id);
+    const pickable = members.filter((x) => !isLeren(x));
+    const all = pickable.length && pickable.every((x) => S.selected.has(x.id));
+    html += `<div class="story ${open ? 'open' : ''}" data-n="${Math.min(members.length, 3)}">
+      ${card(top)}
+      <div class="story-foot">
+        <button class="story-more" data-action="story" data-id="${esc(top.id)}" aria-expanded="${open}">${facesHtml(rest)}<span>${rest.length} meer over ${g.naam ? esc(g.naam) : 'hetzelfde'}</span><span class="chev">${icon('chevron')}</span></button>
+        ${pickable.length ? `<button class="story-pick ${all ? 'on' : ''}" data-action="story-pick" data-id="${esc(top.id)}">${icon('check')}${all ? 'Gekozen' : `Kies alle ${pickable.length}`}</button>` : ''}
+      </div>
+      ${open ? `<div class="story-cards">${rest.map(card).join('')}</div>` : ''}
+    </div>`;
+  }
+  return html;
 }
 
 function chipsHtml() {
@@ -962,7 +1041,8 @@ function chipsHtml() {
     gebruikt: base.filter((i) => i.status === 'gebruikt').length,
     archief: base.filter((i) => i.status === 'archief').length,
   };
-  return FILTERS.map(([k, label]) => `<button class="chip ${S.filter === k ? 'on' : ''}" data-action="filter" data-v="${k}">${label}<span class="n">${rollHtml(count[k], `chip:${S.map || ''}:${k}`)}</span></button>`).join('');
+  return `${FILTERS.map(([k, label]) => `<button class="chip ${S.filter === k ? 'on' : ''}" data-action="filter" data-v="${k}">${label}<span class="n">${rollHtml(count[k], `chip:${S.map || ''}:${k}`)}</span></button>`).join('')}
+    <button class="chip stapel-chip ${S.stapels ? 'active' : ''}" data-action="toggle-stapels" aria-pressed="${S.stapels}" title="Items over hetzelfde verhaal als één stapel">${icon('layers')}Stapels</button>`;
 }
 
 // Two kinds of saved items: material to post about, and makers to learn from.
@@ -997,6 +1077,7 @@ function feedView() {
 function foldersView() {
   return `<div class="topbar"><div style="flex:1"><span class="dateline">${S.items.length} items</span><h1>Mappen</h1></div><button class="btn" data-action="new-folder">${icon('plus')}Nieuw</button></div>
     ${tidyHtml()}
+    ${ideasHtml()}
     <div class="list folders">${folderList().map((f) => `
       <div class="card" data-action="nav" data-href="#/map/${encodeURIComponent(f.naam)}">
         <div class="row">${icon(f.naam === 'Inbox' ? 'inbox' : 'folder')}<h3 style="margin:0;flex:1">${esc(f.naam)}</h3><span class="muted">${f.aantal}</span></div>
@@ -3156,13 +3237,32 @@ const actions = {
   },
   filter: (el) => {
     S.filter = el.dataset.v;
-    local.set('cm_prefs', { filter: S.filter, sort: S.sort });
+    savePrefs();
     renderList();
+  },
+  'toggle-stapels': () => {
+    S.stapels = !S.stapels;
+    savePrefs();
+    renderList();
+  },
+  story: (el) => {
+    const id = el.dataset.id;
+    S.openStories.has(id) ? S.openStories.delete(id) : S.openStories.add(id);
+    renderList();
+  },
+  'story-pick': (el) => {
+    const g = storyGroups().find((x) => x.ids.includes(el.dataset.id));
+    if (!g) return;
+    const shown = new Set(visibleItems().map((x) => x.id));
+    const ids = g.ids.filter((id) => shown.has(id) && !isLeren(S.items.find((x) => x.id === id)));
+    const all = ids.every((id) => S.selected.has(id));
+    ids.forEach((id) => (all ? S.selected.delete(id) : S.selected.add(id)));
+    render();
   },
   sort: () => {
     const keys = Object.keys(SORTS);
     S.sort = keys[(keys.indexOf(S.sort) + 1) % keys.length];
-    local.set('cm_prefs', { filter: S.filter, sort: S.sort });
+    savePrefs();
     render();
   },
   reload: async () => {
@@ -3253,6 +3353,23 @@ const actions = {
     if (fresh) burst(el);
     await copy(S.prompt, fresh ? 'Gekopieerd. De bronnen staan nu in je content-archief' : 'Prompt gekopieerd, plak hem in je chat', fresh ? { soort: 'ok', actie: undoCurrentProduction } : undefined);
     recordProduction().catch((e) => toast(e.message));
+  },
+  'idea-skip': (el) => {
+    local.set('cm_ideeen_weg', [...new Set([...local.get('cm_ideeen_weg', []), el.dataset.v])]);
+    render();
+  },
+  'idea-make': async (el) => {
+    const v = S.vault;
+    const idea = folderIdeas(S.items, v.folders()).find((x) => x.tag === el.dataset.v);
+    if (!idea) return;
+    const folder = v.createFolder(idea.naam);
+    for (const id of idea.ids) await patchItem(id, { map: folder });
+    // A rule, so new items on this topic land there by themselves.
+    const rules = v.system['regels.md'] || '';
+    if (!new RegExp(`^${folder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:`, 'mi').test(rules)) v.writeSystem('regels.md', `${rules.replace(/\s*$/, '')}\n${folder}: ${idea.tag.replace(/-/g, ' ')}\n`);
+    v.flush().catch(() => {});
+    toast(`Map ${folder} gemaakt met ${idea.ids.length} items`, { soort: 'ok' });
+    render();
   },
   'tidy-start': () => runTidy(),
   'tidy-stop': () => {
@@ -4063,13 +4180,14 @@ async function boot() {
   const prefs = local.get('cm_prefs', {});
   if (prefs.filter) S.filter = prefs.filter;
   if (prefs.sort && SORTS[prefs.sort]) S.sort = prefs.sort;
+  if (prefs.stapels === false) S.stapels = false;
   S.wasDesktop = isDesktop();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   setupDeck((dir, id) => (dir === 'tap' ? go(`#/item/${encodeURIComponent(id)}`) : deckAction(dir, id)));
   setupTilt();
   // Swipe a card in the feed: left into the archive (or back out of it), right for a star.
   setupSwipeAway({
-    selector: '#list > .card',
+    selector: '#list > .card, #list > .story > .card',
     actionFor: (card, dir) => {
       const meta = S.vault?.has(card.dataset.id) ? S.vault.meta(card.dataset.id) : null;
       if (!meta) return null;
