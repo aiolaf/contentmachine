@@ -2,23 +2,25 @@
 // own GitHub repo (or on this device) and the browser talks to it directly.
 import { GitHubStore, LocalStore, parseRepoInput, cleanToken } from './lib/store.js';
 import { Vault } from './lib/vault.js';
-import { processCapture, processInbox, backfillPreviews } from './lib/pipeline.js';
+import { processCapture, processInbox, backfillPreviews, needsEnrich, reEnrich, resortPlan, wronglyLearning, handPlaced } from './lib/pipeline.js';
 import { embedFor } from './lib/embeds.js';
 import { buildShortcut, buildVideoShortcut, inboxApiUrl, SIGN_COMMAND, signCommand } from './lib/shortcut.js';
 import { findMedia, cobaltLink, ytdlpCommand, YT_FORMATEN } from './lib/video.js';
 import { youtubeId } from './lib/capture.js';
 import {
-  parseBundles, stringifyBundles, autoBundle, bundleOf, bundlesFor, setFolderBundles, renameFolderInBundles, OTHER,
+  parseBundles, stringifyBundles, autoBundle, pruneBundles, bundleOf, bundlesFor, setFolderBundles, renameFolderInBundles, OTHER,
 } from './lib/bundles.js';
 import { buildPrompt, buildLessonPrompt, chatLinks, SOORTEN as PROMPT_SOORTEN } from './lib/prompts.js';
-import { trainModel } from './lib/classify.js';
+import { trainModel, classify, parseRules, suggestTags, BY_HAND, UNSURE } from './lib/classify.js';
+import { REGELS, REGELS_V1 } from './lib/seeds.js';
+import { PAGE_WORDS, FILLER } from './lib/words.js';
 import { STATUSES, getSection, setSection, removeSection, parseNote, NOTES } from './lib/frontmatter.js';
 import { lessonsOf, withLessons } from './lib/lessons.js';
 import { fold, plainText, parseQuery, matchItem, snippet } from './lib/search.js';
 import { parseHighlights, withHighlights, cleanHighlight, sameHighlight, MARKERINGEN } from './lib/highlights.js';
 import { dailyReview, stopReview, daysUntil, highlightOfDay, localDay } from './lib/review.js';
 import { openTextCache } from './lib/textcache.js';
-import { topicsOf, productionTitle, conceptBody, contentStats, earlierAbout, sameSet } from './lib/content.js';
+import { topicsOf, topicKey, productionTitle, conceptBody, contentStats, earlierAbout, sameSet } from './lib/content.js';
 import {
   toast as showToast, confirmSlide, rollHtml, animateRolls, burst, pop, switchHtml, flipSwitch,
   ringHtml, setRing, checkSvg, setGenerate, flyOut, setupDeck, setupTilt, setupSwipeAway,
@@ -70,7 +72,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '8 nov 2026, 18:15';
+const VERSIE = '15 nov 2026, 20:45';
 // The Teleprompter lives in teleprompter/ on the same site; it shows a link back here.
 const TELEPROMPTER_URL = 'teleprompter/?van=contentmachine';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
@@ -155,6 +157,8 @@ const S = {
   titelEdit: false,
   // Items to learn from whose lessons go along in the next prompt.
   lessen: new Set(),
+  // Tidying up: fetching missing texts and putting items in the right folder.
+  opschoon: null,
 };
 const isLeren = (i) => i.doel === 'leren';
 
@@ -360,10 +364,242 @@ async function loadVaultOnce() {
     S.vault.flush().catch((e) => toast(e.message));
   }
   refreshItems();
+  await fixLearning();
   runAutoBundle();
   backfill();
   setTimeout(indexTexts, 1500);
   swipeTip();
+}
+
+// ---------- repairs and tidying up ----------
+// Rules nobody changed can get the current ones: more words per folder, and
+// platform names no longer count as a topic. Only on "Schoon op", never on
+// its own: the file is yours.
+const rulesOutdated = () => S.vault.system['regels.md'] === REGELS_V1;
+function upgradeRules() {
+  if (!rulesOutdated()) return false;
+  S.vault.writeSystem('regels.md', REGELS);
+  return true;
+}
+
+// An earlier version taught itself to put new items under "to learn from".
+// Unopened ones it put there go back, once.
+async function fixLearning() {
+  const v = S.vault;
+  if (!S.items.some(isLeren) || v.learner.migrated('doel-auto-1')) return;
+  const ids = wronglyLearning(S.items, { makers: v.learner.state.makers, rulesText: v.system['regels.md'] });
+  for (const id of ids) await v.update(id, { doel: undefined }).catch(() => {});
+  if (!ids.length) return;
+  refreshItems();
+  toast(`${ids.length} nieuwe item${ids.length === 1 ? ' stond' : 's stonden'} door een fout bij Om van te leren en ${ids.length === 1 ? 'staat' : 'staan'} weer bij Om te posten`, {
+    duur: 9000,
+    actie: async () => {
+      for (const id of ids) if (v.has(id)) await v.update(id, { doel: 'leren' }).catch(() => {});
+      refreshItems();
+      renderList();
+    },
+  });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A post whose source keeps giving nothing is left alone after three tries
+// on this device, so the same work is not offered again and again.
+const enrichTries = () => local.get('cm_enrich_tries', {});
+const canEnrich = (i) => needsEnrich(i) && (enrichTries()[i.id] || 0) < 3;
+
+// One note: fetch its text again and repair it. The free reader allows about
+// twenty pages a minute, so a note that needed the network is followed by a pause.
+async function enrichOne(id) {
+  let asked = false;
+  const started = Date.now();
+  const opts = { ...pipelineOpts(), fetchImpl: (...a) => { asked = true; return fetch(...a); } };
+  let m = null;
+  try {
+    m = await reEnrich(S.vault, id, opts);
+  } catch {
+    // one note that fails must not stop the rest
+  }
+  if (!m) {
+    const tries = enrichTries();
+    tries[id] = (tries[id] || 0) + 1;
+    local.set('cm_enrich_tries', tries);
+  }
+  return { meta: m, wait: asked ? Math.max(0, 3200 - (Date.now() - started)) : 0 };
+}
+
+// The Bron text of a note when this device has it, for a better folder choice.
+function sourceText(id) {
+  const raw = S.vault.cachedText(id);
+  return raw === null ? '' : getSection(parseNote(raw).body, 'Bron').replace(/^> ?/gm, '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').slice(0, 3000);
+}
+
+function tidyCounts() {
+  const tekst = S.items.filter(canEnrich).length;
+  const plan = resortPlan(S.vault.list(), { rulesText: rulesOutdated() ? REGELS : S.vault.system['regels.md'], correcties: S.vault.learner.state.correcties, texts: new Map(S.items.map((i) => [i.id, sourceText(i.id)])) });
+  return { tekst, mappen: plan.filter((m) => m.van !== m.naar).length };
+}
+
+// Everything at once: texts for posts that have none, then every
+// automatically placed item to the folder it belongs in.
+async function runTidy() {
+  if (S.opschoon?.bezig) return;
+  const v = S.vault;
+  const todo = S.items.filter(canEnrich).map((i) => i.id);
+  const t = { bezig: true, fase: 'tekst', klaar: 0, totaal: todo.length, gevonden: 0, moves: [], stop: false, wacht: 0, regels: null };
+  S.opschoon = t;
+  if (rulesOutdated()) {
+    t.regels = v.system['regels.md'];
+    upgradeRules();
+  }
+  render();
+  for (const id of todo) {
+    if (t.stop) break;
+    if (v.has(id)) {
+      const { meta, wait } = await enrichOne(id);
+      if (meta) t.gevonden += 1;
+      t.klaar += 1;
+      paintTidy();
+      if (!t.stop) await sleep(wait);
+    } else t.klaar += 1;
+  }
+  t.wacht = S.items.filter(needsEnrich).length;
+  t.fase = 'mappen';
+  paintTidy();
+  refreshItems();
+  // Tags that are filler ("actually", "introducing") make way for real topics.
+  for (const i of S.items) {
+    const rest = (i.tags || []).filter((x) => !FILLER.has(x) && !PAGE_WORDS.has(x));
+    if (i.invalid || rest.length === (i.tags || []).length) continue;
+    const fresh = suggestTags({ titel: i.titel, tekst: sourceText(i.id), auteur: i.auteur }, S.items.filter((x) => x.id !== i.id));
+    const tags = [...new Set([...rest, ...fresh])].slice(0, Math.max(4, rest.length));
+    try {
+      await v.update(i.id, { tags });
+      t.gevonden += 1;
+    } catch {
+      // an invalid note keeps its tags
+    }
+  }
+  refreshItems();
+  // What you once moved yourself is marked, so it never moves again.
+  const all = v.list();
+  for (const id of handPlaced(all, v.learner.state.correcties)) {
+    if (v.meta(id).ordening !== BY_HAND) await v.update(id, { ordening: BY_HAND }).catch(() => {});
+  }
+  const texts = new Map(all.map((i) => [i.id, sourceText(i.id)]));
+  const plan = resortPlan(v.list(), { rulesText: v.system['regels.md'], correcties: v.learner.state.correcties, texts });
+  for (const m of plan) {
+    if (!v.has(m.id)) continue;
+    const before = v.meta(m.id);
+    try {
+      await v.update(m.id, { map: m.naar, ordening: m.reden });
+      if (m.van !== m.naar) t.moves.push({ id: m.id, titel: m.titel, van: m.van, naar: m.naar, ordening: before.ordening });
+    } catch {
+      // an invalid note stays where it is
+    }
+  }
+  refreshItems();
+  // Bundles and topics made of platform words go; real ones are found again.
+  const pruned = pruneBundles(S.items, bundleModel(), (x) => FILLER.has(x) || PAGE_WORDS.has(x));
+  if (pruned.removed) v.writeSystem('bundels.md', stringifyBundles(pruned.model));
+  runAutoBundle();
+  retopic();
+  t.bezig = false;
+  t.fase = 'klaar';
+  v.flush().catch((e) => toast(e.message));
+  render();
+}
+
+// Productions whose topics were platform words ("Main content", "Photos")
+// get the topics their sources have now.
+function retopic() {
+  const v = S.vault;
+  const junk = (o) => topicKey(o).split('-').every((w) => PAGE_WORDS.has(w)) || PAGE_WORDS.has(topicKey(o));
+  let changed = false;
+  const next = v.content.map((p) => {
+    if (!(p.onderwerpen || []).some(junk)) return p;
+    const metas = (p.bronnen || []).filter((id) => v.has(id)).map((id) => v.meta(id));
+    if (!metas.length) return p;
+    const { onderwerpen } = topicsOf(metas, bundleModel());
+    const auto = (p.titel || '').split(' en ').every((part) => junk(part));
+    changed = true;
+    return { ...p, onderwerpen, titel: auto ? productionTitle(metas, onderwerpen) : p.titel };
+  });
+  if (changed) v.saveContent(next);
+}
+
+async function undoTidy() {
+  const t = S.opschoon;
+  if (!t?.moves.length) return;
+  for (const m of t.moves) {
+    if (S.vault.has(m.id)) await S.vault.update(m.id, { map: m.van, ordening: m.ordening }).catch(() => {});
+  }
+  if (t.regels) S.vault.writeSystem('regels.md', t.regels);
+  S.opschoon = null;
+  refreshItems();
+  S.vault.flush().catch(() => {});
+  render();
+  toast(t.regels ? 'De items staan weer in de map waar ze stonden, met je oude regels' : 'De items staan weer in de map waar ze stonden');
+}
+
+function paintTidy() {
+  const box = $('#tidy');
+  if (box) box.outerHTML = tidyHtml();
+}
+
+// The card on top of Mappen: what there is to tidy, how far it is, what moved.
+function tidyHtml() {
+  const t = S.opschoon;
+  if (t?.bezig) {
+    const pct = t.fase === 'tekst' && t.totaal ? Math.round((t.klaar / t.totaal) * 100) : 100;
+    return `<div class="panel tidy" id="tidy">
+      <h3>${icon('sparkle')}Opschonen</h3>
+      <div class="dl"><div class="dl-bar"><span style="width:${pct}%"></span></div>
+      <p class="small muted dl-text">${t.fase === 'tekst' ? `Tekst ophalen: ${t.klaar} van ${t.totaal}${t.gevonden ? `, ${t.gevonden} verbeterd` : ''}. Laat de app open.` : 'Items in de juiste map zetten...'}</p></div>
+      ${t.fase === 'tekst' ? `<button class="btn ghost" data-action="tidy-stop">${t.stop ? 'Stopt na dit item...' : 'Stop en ga door met de mappen'}</button>` : ''}
+    </div>`;
+  }
+  if (t?.fase === 'klaar') {
+    const flows = new Map();
+    for (const m of t.moves) flows.set(`${m.van}\n${m.naar}`, (flows.get(`${m.van}\n${m.naar}`) || 0) + 1);
+    const rows = [...flows].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, n]) => {
+      const [van, naar] = k.split('\n');
+      return `<div class="stat-row"><span class="stat-name">${esc(van)} naar ${esc(naar)}</span><b>${n}</b></div>`;
+    }).join('');
+    const inbox = S.items.filter((i) => i.map === 'Inbox').length;
+    return `<div class="panel tidy" id="tidy">
+      <h3>${icon('check')}Opgeschoond</h3>
+      <p class="small">${t.gevonden} item${t.gevonden === 1 ? ' kreeg' : 's kregen'} tekst, een titel of betere tags. ${t.moves.length} item${t.moves.length === 1 ? ' ging' : 's gingen'} naar een andere map.</p>
+      ${rows ? `<div class="stat-list">${rows}</div>` : ''}
+      ${t.wacht ? `<p class="small muted">Voor ${t.wacht} item${t.wacht === 1 ? '' : 's'} gaf de bron nu geen tekst. De app probeert het later vanzelf opnieuw.</p>` : ''}
+      ${inbox ? `<p class="small muted">${inbox} item${inbox === 1 ? ' staat' : 's staan'} in Inbox omdat de app niet zeker is. Open er een en tik op een voorgestelde map: daar leert de app het snelst van.</p>` : ''}
+      <div class="make-row">
+        ${t.moves.length ? `<button class="btn ghost" data-action="tidy-undo">Zet de mappen terug</button>` : ''}
+        <button class="btn" data-action="tidy-close">Klaar</button>
+      </div>
+    </div>`;
+  }
+  const c = tidyCounts();
+  const regels = rulesOutdated();
+  if (!c.tekst && !c.mappen && !regels) return '<div id="tidy"></div>';
+  const parts = [];
+  if (c.tekst) parts.push(`${c.tekst} bewaarde post${c.tekst === 1 ? ' heeft' : 's hebben'} nog geen tekst of echte titel`);
+  if (c.mappen) parts.push(`${c.mappen} item${c.mappen === 1 ? ' staat' : 's staan'} waarschijnlijk in de verkeerde map`);
+  return `<div class="panel tidy" id="tidy">
+    <h3>${icon('sparkle')}Opschonen</h3>
+    <p class="small">${parts.join(' en ')}.</p>
+    <p class="small muted">De app haalt de tekst van die posts op, geeft ze een titel en tags, en zet elk automatisch geplaatst item in de map waar het hoort. Notities met een nieuwe titel krijgen ook een nieuwe bestandsnaam in Obsidian. Wat je zelf verplaatste blijft staan. ${regels ? 'Je regels voor mappen (regels.md) krijgen meer woorden per map en er komt een map <b>Design &amp; Vibe Coding</b> bij; je oude regels komen terug als je de mappen terugzet. ' : ''}${c.tekst > 10 ? `Dit duurt ongeveer ${Math.ceil((c.tekst * 3.5) / 60)} minuten; laat de app open.` : ''}</p>
+    <button class="btn primary" data-action="tidy-start">${icon('sparkle')}Schoon op</button>
+  </div>`;
+}
+
+// The folders to offer for an item, best first, never the one it is in.
+let folderMemo = { items: null, model: null };
+function folderSuggestions(d) {
+  if (folderMemo.items !== S.items) folderMemo = { items: S.items, model: trainModel(S.items.filter((i) => i.id !== d.id)) };
+  const text = getSection(d.body || '', 'Bron').replace(/^> ?/gm, '').slice(0, 3000);
+  const c = classify({ ...d, tekst: text }, folderMemo.model, parseRules(S.vault.system['regels.md']));
+  return [c.map, ...c.kandidaten].filter((f) => f && f !== 'Inbox' && f !== d.map).slice(0, 3);
 }
 
 // Older items without a preview get one in the background, a few per visit.
@@ -688,7 +924,7 @@ function chipsHtml() {
 function doelSegHtml() {
   const base = (S.map ? S.items.filter((i) => i.map === S.map) : S.items).filter(isActive);
   const n = base.filter(isLeren).length;
-  const btn = (v, label, count) => `<button class="${S.doel === v ? 'on' : ''}" data-action="doel" data-v="${v}" aria-pressed="${S.doel === v}">${v === 'leren' ? icon('bulb') : icon('feed')}${label}<span class="n">${count}</span></button>`;
+  const btn = (v, label, count) => `<button class="${S.doel === v ? 'on' : ''}" data-action="doel" data-v="${v}" aria-pressed="${S.doel === v}">${v === 'leren' ? icon('bulb') : icon('feed')}<span class="lbl">${label}</span><span class="n">${count}</span></button>`;
   return btn('posten', 'Om te posten', base.length - n) + btn('leren', 'Om van te leren', n);
 }
 
@@ -715,6 +951,7 @@ function feedView() {
 
 function foldersView() {
   return `<div class="topbar"><div style="flex:1"><span class="dateline">${S.items.length} items</span><h1>Mappen</h1></div><button class="btn" data-action="new-folder">${icon('plus')}Nieuw</button></div>
+    ${tidyHtml()}
     <div class="list folders">${folderList().map((f) => `
       <div class="card" data-action="nav" data-href="#/map/${encodeURIComponent(f.naam)}">
         <div class="row">${icon(f.naam === 'Inbox' ? 'inbox' : 'folder')}<h3 style="margin:0;flex:1">${esc(f.naam)}</h3><span class="muted">${f.aantal}</span></div>
@@ -777,7 +1014,7 @@ function detailHtml() {
       ${VIDEO_TYPES.includes(d.type) && origineel ? `<button class="icon-btn" data-action="nav" data-href="#/video?url=${encodeURIComponent(d.url)}" aria-label="Download video of foto's" title="Download video of foto's">${icon('download')}</button>` : ''}
       <button class="icon-btn" data-action="delete" aria-label="Verwijder">${icon('trash')}</button>
     </div>
-    <div class="scorebox"><div class="big">${rollHtml(shown(d.rank), 'score')}</div><div class="why">${d.ordening === 'haiku' ? 'Geordend met Claude Haiku.' : d.ordening ? `Map gekozen via ${esc(d.ordening)}.` : ''}<br><span class="small">Basis ${d.score} ${d.boost >= 0 ? '+' : ''}${d.boost} geleerd${d.ster ? ', +15 ster' : ''}${d.oordeel ? `, ${d.oordeel > 0 ? '+' : ''}${d.oordeel * 10} duim` : ''}</span></div></div>
+    <div class="scorebox"><div class="big">${rollHtml(shown(d.rank), 'score')}</div><div class="why">${d.ordening === 'haiku' ? 'Geordend met Claude Haiku.' : d.ordening === BY_HAND ? 'Door jou in deze map gezet.' : d.ordening === UNSURE ? 'Nog geen map: de app is niet zeker.' : d.ordening ? `Map gekozen via ${esc(d.ordening)}.` : ''}<br><span class="small">Basis ${d.score} ${d.boost >= 0 ? '+' : ''}${d.boost} geleerd${d.ster ? ', +15 ster' : ''}${d.oordeel ? `, ${d.oordeel > 0 ? '+' : ''}${d.oordeel * 10} duim` : ''}</span></div></div>
     ${usedInHtml(d)}
     ${isLeren(d) ? learnPanel(d) : `<div class="panel">
       <h3>Maak er content van</h3>
@@ -791,7 +1028,12 @@ function detailHtml() {
         <button class="btn ghost" data-action="select" data-id="${esc(d.id)}">${S.selected.has(d.id) ? 'In selectie' : 'Voeg toe aan selectie'}</button>
       </div>
     </div>`}
-    <div class="field"><label for="map-select">Map</label><select id="map-select">${folderOptions(d.map)}</select></div>
+    <div class="field"><label for="map-select">Map</label><select id="map-select">${folderOptions(d.map)}</select>
+      ${d.invalid || d.ordening === BY_HAND ? '' : (() => {
+        const tips = folderSuggestions(d);
+        return tips.length ? `<div class="folder-tips"><span class="small muted">${d.map === 'Inbox' ? 'Zet in' : 'Of in'}</span>${tips.map((f) => `<button class="chip" data-action="move-to" data-v="${esc(f)}">${esc(f)}</button>`).join('')}</div>` : '';
+      })()}
+    </div>
     <div class="field"><label for="tags-input">Tags (komma's)</label><input id="tags-input" value="${esc((d.tags || []).join(', '))}" autocomplete="off"></div>
     <div class="field"><label for="notes">Mijn notities <span id="notes-state" class="small"></span></label><textarea id="notes" rows="4" placeholder="Jouw gedachten, invalshoek of hook. Gaat mee in de prompt en staat ook in Obsidian.">${esc(d.notities || '')}</textarea></div>
     ${highlightsPanel(d)}
@@ -1982,11 +2224,16 @@ async function patchItem(id, body) {
     if (typeof body.map === 'string' && body.map.trim() && body.map !== meta.map) {
       const clean = body.map.trim();
       patch.map = v.folders().find((f) => f.toLowerCase() === clean.toLowerCase()) || clean;
+      // Your own choice: the model learns from it and never moves it again.
+      patch.ordening = BY_HAND;
       correction = { from: meta.map, to: patch.map };
     }
     if ('doel' in body) {
       const doel = body.doel === 'leren' ? 'leren' : undefined;
-      if (doel !== meta.doel) patch.doel = doel;
+      if (doel !== meta.doel) {
+        patch.doel = doel;
+        v.learner.maker(meta.auteur, doel || 'posten');
+      }
     }
     if (Array.isArray(body.tags)) patch.tags = body.tags.map((t) => t.toLowerCase().trim().replace(/\s+/g, '-')).filter(Boolean);
     const updated = await v.update(id, patch, { notities: body.notities });
@@ -2427,6 +2674,20 @@ const actions = {
     if (fresh) burst(el);
     await copy(S.prompt, fresh ? 'Gekopieerd. De bronnen staan nu in je content-archief' : 'Prompt gekopieerd, plak hem in je chat', fresh ? { soort: 'ok', actie: undoCurrentProduction } : undefined);
     recordProduction().catch((e) => toast(e.message));
+  },
+  'tidy-start': () => runTidy(),
+  'tidy-stop': () => {
+    if (S.opschoon) S.opschoon.stop = true;
+    paintTidy();
+  },
+  'tidy-undo': () => undoTidy(),
+  'tidy-close': () => {
+    S.opschoon = null;
+    render();
+  },
+  'move-to': async (el) => {
+    const m = await patchItem(S.detail.id, { map: el.dataset.v });
+    if (m) toast(`Verplaatst naar ${m.map}. De machine leert hiervan.`);
   },
   doel: (el) => {
     S.doel = el.dataset.v === 'leren' ? 'leren' : 'posten';

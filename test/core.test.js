@@ -672,21 +672,25 @@ test('leren: items to learn from, their lessons and the prompts around them', as
   assert.equal(getSection(body, 'Mijn notities'), 'Goed', 'the notes end at the lessons');
   assert.equal(lessonsOf(withLessons(body, '  ')), '', 'empty removes the section');
 
-  // Guessing: the craft words, your own "Leren:" line, then what you taught it.
+  // Guessing: the craft words, your own "Leren:" line, then the makers you marked.
   const it = (titel, extra = {}) => ({ titel, verrijkt: true, tags: [], ...extra });
   assert.equal(guessDoel(it('How I use storytelling to keep people watching')), 'leren');
   assert.equal(guessDoel(it('OpenAI brengt GPT-6 uit')), 'posten');
   assert.ok(LEREN_WOORDEN.includes('copywriting'));
-  assert.equal(guessDoel(it('Mijn beste schrijfles'), [], 'AI Nieuws: openai\nLeren: schrijfles, montage'), 'leren');
-  assert.equal(guessDoel(it('Storytelling in video'), [], 'Leren: montage'), 'posten', 'your line replaces the default words');
+  assert.equal(guessDoel(it('Mijn beste schrijfles'), { rulesText: 'AI Nieuws: openai\nLeren: schrijfles, montage' }), 'leren');
+  assert.equal(guessDoel(it('Storytelling in video'), { rulesText: 'Leren: montage' }), 'posten', 'your line replaces the default words');
   // "Leren:" never becomes a folder.
   assert.equal(classify(it('Montage tips'), trainModel([]), parseRules('Leren: montage\nAI Tools: tips')).map, 'AI Tools');
-  const taught = [
-    ...['kallaway hooks camera', 'kallaway pacing camera', 'kallaway verhaal camera'].map((t) => it(t, { doel: 'leren' })),
-    ...['openai model release', 'gemini model release', 'claude model release'].map((t) => it(t)),
-  ];
-  assert.equal(guessDoel(it('kallaway camera'), taught), 'leren', 'learned from your own choices');
-  assert.equal(guessDoel(it('mistral model release'), taught), 'posten');
+  // A maker you put under learning twice goes there; one time is not a habit yet.
+  const { Learner: L } = await import('../lib/learn.js');
+  const learner = new L();
+  learner.maker('Kallaway (@kallawaymarketing)', 'leren');
+  assert.equal(guessDoel(it('New camera', { auteur: 'Kallaway (@kallawaymarketing)' }), { makers: learner.state.makers }), 'posten');
+  learner.maker('@KallawayMarketing', 'leren');
+  assert.equal(guessDoel(it('New camera', { auteur: 'Kallaway (@kallawaymarketing)' }), { makers: learner.state.makers }), 'leren');
+  assert.equal(guessDoel(it('New camera', { auteur: 'Someone else (@other)' }), { makers: learner.state.makers }), 'posten');
+  // The app's own guesses teach it nothing: many auto-marked items change no outcome.
+  assert.equal(guessDoel(it('Claude Meetings is here', { auteur: 'Claude (@claudeai)' }), { makers: {} }), 'posten');
 
   // The lesson prompt asks for the transcript when a video has no text.
   const p = buildLessonPrompt({ item: { meta: { titel: 'Storytelling', type: 'tiktok', url: 'https://www.tiktok.com/@kallaway/video/1', auteur: '@kallaway' }, body: '' }, profiel: '# Profiel\n\nOlaf' });

@@ -626,9 +626,11 @@ img.video-preview { height: auto; }
 @media (max-width: 380px) { .select-bar .faces { display: none; } }
 
 /* ---------- to post about, or to learn from ---------- */
-.doel-seg { display: flex; gap: 4px; padding: 5px; margin: 0 0 12px; background: rgba(255, 255, 255, .78); border-radius: 999px; box-shadow: var(--shadow); width: max-content; max-width: 100%; }
-.doel-seg button { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; padding: 9px 16px; border-radius: 999px; font: inherit; font-size: 14.5px; font-weight: 600; color: var(--muted); cursor: pointer; white-space: nowrap; transition: background-color .15s, color .15s; }
-.doel-seg button svg { width: 16px; height: 16px; }
+.doel-seg { display: flex; gap: 4px; padding: 5px; margin: 0 0 12px; background: rgba(255, 255, 255, .78); border-radius: 999px; box-shadow: var(--shadow); width: 100%; max-width: 440px; overflow: hidden; }
+.doel-seg button { display: inline-flex; flex: 1 1 0; min-width: 0; align-items: center; justify-content: center; gap: 7px; border: 0; background: transparent; padding: 9px 12px; border-radius: 999px; font: inherit; font-size: 14.5px; font-weight: 600; color: var(--muted); cursor: pointer; white-space: nowrap; transition: background-color .15s, color .15s; }
+.doel-seg button svg { flex: none; width: 16px; height: 16px; }
+.doel-seg button .lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 440px) { .doel-seg button svg { display: none; } .doel-seg button { padding: 9px 8px; gap: 6px; } }
 .doel-seg button .n { font-weight: 500; font-variant-numeric: tabular-nums; opacity: .7; }
 .doel-seg button:hover { color: var(--text); }
 .doel-seg button.on { background: var(--text); color: #fff; }
@@ -685,3 +687,17 @@ img.video-preview { height: auto; }
 .ytdlp summary, .cobalt-set summary { cursor: pointer; font-weight: 600; font-size: 14.5px; }
 .ytdlp[open] summary, .cobalt-set[open] summary { margin-bottom: 6px; }
 .ytdlp code { font-size: 12.5px; }
+
+/* ---------- tidying up and folder tips ---------- */
+.tidy { background: linear-gradient(160deg, var(--tint-mint), #fff 72%); margin-bottom: 14px; }
+.tidy h3 { display: flex; align-items: center; gap: 8px; }
+.tidy h3 svg { width: 18px; height: 18px; }
+.tidy .stat-list { margin: 8px 0; }
+.tidy .stat-name { flex: 1; }
+.folder-tips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.folder-tips .chip { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; font-size: 13.5px; }
+.folder-tips .chip:hover { border-color: var(--text); }
+
+/* A long word or address without spaces wraps; it never makes the page wider than the screen. */
+body { overflow-x: clip; }
+.card-main, .card h3, .card p, .detail h2, .title-row h2, .md, .video-title, .prod-title, .picked-item span, .review-card h3, .deck-card h3, .deck-card p, .stat-name, .hl-item, .concept-row { overflow-wrap: anywhere; min-width: 0; }

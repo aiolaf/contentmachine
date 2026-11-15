@@ -106,12 +106,37 @@ Plaatjes worden niet in je repo opgeslagen, alleen de link. Instagram- en TikTok
 
 ## Ordenen zonder AI
 
-Een nieuw item gaat naar een map via twee signalen:
+Een nieuw item gaat naar een map via drie signalen:
 
-1. **Trefwoordregels** in `_systeem/regels.md`, bijvoorbeeld `Automatisering: n8n, zapier, workflow`. Die werken vanaf dag één. Pas ze aan in de app of in Obsidian.
-2. **Een eigen model (naive Bayes)** dat leert van hoe jij sorteert. Elke keer dat je een item naar een map verplaatst, in de app of door het in Obsidian te slepen, leert het daarvan. Na drie of meer items per map weegt het model zwaarder dan de regels.
+1. **Trefwoordregels** in `_systeem/regels.md`, bijvoorbeeld `Automatisering: n8n, zapier, workflow`. Die werken vanaf dag één. Pas ze aan in de app of in Obsidian. Een woord dat met `@` begint is een maker: `Content Inspiratie: @kallaway` pakt alles van die maker. Een regel voor een map die nog niet bestaat, maakt die map aan.
+2. **Een eigen model (naive Bayes)** van de woorden per map. Het leert alleen van plaatsingen die zeker zijn: wat jij zelf verplaatste (in de app of door te slepen in Obsidian) en wat een regel plaatste. Van zijn eigen gokken leert het niet, zodat één verkeerde gok geen gewoonte wordt.
+3. **De maker**: zet je posts van dezelfde maker steeds in één map, dan gaat de volgende daar ook heen.
 
-Twijfelt de app, dan blijft het item in **Inbox** staan tot jij het verplaatst. Zo leert het model weer bij. Tags komen uit de woorden die het meest kenmerkend zijn voor het item, de samenvatting uit de eerste zinnen.
+Dat een post op Instagram of LinkedIn staat, zegt niets over het onderwerp en telt dus niet mee. Twijfelt de app, dan blijft het item in **Inbox** staan. Open het en tik op een van de **voorgestelde mappen** onder het mapveld: één tik, en het model leert ervan. Een item dat je zelf plaatste, verplaatst de app nooit meer.
+
+Tags zeggen waar een item over gaat: de eigen #hashtags van de post als die er zijn, anders de meest kenmerkende woorden, met namen voorop. De naam van de maker, het platform en vulwoorden ("actually", "introducing") worden geen tag.
+
+### Tekst van posts
+
+Van een post bewaart de app de post zelf, niet de pagina eromheen:
+
+- **Instagram:** het bijschrift, via de insluitpagina (Jina Reader), anders uit de paginabeschrijving.
+- **LinkedIn:** de tekst van de post en bij een video het transcript, zonder inlogmuur, menu's en reacties van anderen.
+- **Threads:** de post zonder menu's en tellers. Deellinks (`threads.com/share/...`) werken ook.
+- **TikTok:** het bijschrift en de maker, via tikwm.
+
+De titel van een post is zijn eerste zin. Geeft de bron geen tekst, dan heet het item bijvoorbeeld "Reel van Jesse Rurka" in plaats van "instagram.com". Dezelfde post met een andere volgcode in de link, of via een ander adres (x.com en twitter.com), herkent de app als dubbel.
+
+### Opschonen
+
+Onder **Mappen** staat een kaart **Opschonen** zodra er iets te doen is. Er gebeurt niets tot je op **Schoon op** tikt; de kaart zegt vooraf wat er verandert:
+
+- Posts die eerder zonder tekst zijn bewaard, krijgen hun tekst, een titel, een samenvatting en tags. Een notitie met een nieuwe titel krijgt ook een nieuwe bestandsnaam in Obsidian; links ernaar in `Concepten/` gaan mee. Je notities, markeringen en lessen blijven staan. De gratis leesdienst staat ongeveer twintig pagina's per minuut toe, dus bij veel items duurt dit een paar minuten.
+- Elk automatisch geplaatst item gaat naar de map waar het met de huidige regels hoort. Wat je zelf verplaatste en wat Haiku plaatste, blijft staan.
+- Heb je `regels.md` nooit aangepast, dan krijgt het de huidige standaardregels: meer woorden per map en een map **Design & Vibe Coding**. Regels die je zelf wijzigde, blijven zoals ze zijn.
+- Bundels en onderwerpen die uit platformwoorden bestonden ("Main content", "Photos"), verdwijnen.
+
+Na afloop zie je wat er verplaatst is. **Zet de mappen terug** herstelt de mappen en je oude regels. Geeft een bron ook na drie pogingen geen tekst, dan biedt de app dat item niet meer aan.
 
 ## Bundels: ordenen op hashtags
 
@@ -331,7 +356,11 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | `lib/pipeline.js` | van gedeelde link naar geordende notitie |
 | `lib/capture.js` | link herkennen, gratis details en plaatjes ophalen |
 | `lib/embeds.js` | de originele post of video per platform |
-| `lib/classify.js` | regels, naive Bayes, tags, samenvatting |
+| `lib/classify.js` | regels, naive Bayes, maker, tags, samenvatting |
+| `lib/clean.js` | de post uit een LinkedIn- of Threads-pagina halen |
+| `lib/postdata.js` | de post uit een Instagram- of Threads-pagina lezen (ook voor de downloader) |
+| `lib/similar.js` | gelijkenis tussen items (tf-idf) |
+| `lib/words.js` | woorden van een tekst, zonder stop-, platform- en vulwoorden |
 | `lib/bundles.js` | bundels op hashtags per map |
 | `lib/shortcut.js` | de iPhone-opdracht als bestand |
 | `lib/learn.js` | zelflerende ranking |
