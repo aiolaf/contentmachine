@@ -83,7 +83,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '34 (15 nov 2026)';
+const VERSIE = '35 (15 nov 2026)';
 // The Teleprompter lives in teleprompter/ on the same site; it shows a link back here.
 const TELEPROMPTER_URL = 'teleprompter/?van=contentmachine';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
@@ -164,7 +164,7 @@ const S = {
   pop: null,
   video: null,
   // Feed: material to post about, or items saved to learn from.
-  doel: local.get('cm_doel', 'posten') === 'leren' ? 'leren' : 'posten',
+  doel: ['leren', 'maken'].includes(local.get('cm_doel', 'posten')) ? local.get('cm_doel', 'posten') : 'posten',
   // How fast an item is read aloud: a place in TEMPO.
   tempo: Number(local.get('cm_tempo', 0)) || 0,
   titelEdit: false,
@@ -188,6 +188,11 @@ const S = {
   openStories: new Set(),
 };
 const isLeren = (i) => i.doel === 'leren';
+// Three kinds of saved items: to post about, as an example for a video of
+// your own, and to learn from.
+const DOELEN = ['posten', 'maken', 'leren'];
+const doelOf = (i) => (i?.doel === 'leren' || i?.doel === 'maken' ? i.doel : 'posten');
+const DOEL_LABEL = { posten: 'Om te posten', maken: 'Om na te maken', leren: 'Om van te leren' };
 const savePrefs = () => local.set('cm_prefs', { filter: S.filter, sort: S.sort, stapels: S.stapels });
 
 // A toast in the stack; pass { actie } for an "Ongedaan maken" button.
@@ -278,8 +283,8 @@ function visibleItems() {
   let list = S.items;
   if (S.map) list = list.filter((i) => i.map === S.map);
   const terms = parseQuery(S.q);
-  // Searching looks in both: to post about and to learn from.
-  if (!terms.length) list = list.filter((i) => isLeren(i) === (S.doel === 'leren'));
+  // Searching looks in all three kinds.
+  if (!terms.length) list = list.filter((i) => doelOf(i) === S.doel);
   if (S.map && S.bundel) {
     const model = bundleModel();
     list = list.filter((i) => {
@@ -846,6 +851,8 @@ async function onRoute() {
   route();
   if (S.view === 'deel') return handleShare();
   if (S.view === 'video') openVideoRoute();
+  // Only examples for a video of your own picked: the script is the first step.
+  if (S.view === 'studio' && prev !== 'studio' && !S.prompt && S.selected.size && [...S.selected].every((id) => doelOf(S.items.find((i) => i.id === id)) === 'maken')) S.soort = 'videoscript';
   // A newly opened item starts at the top; back in the feed you land where you were.
   if (S.view === 'item' && prev !== 'item') S.itemFrom = prev;
   if (S.view === 'concept' && !['concept', 'item'].includes(prev)) S.conceptFrom = prev;
@@ -941,6 +948,7 @@ function card(i) {
         <span class="src">${esc(i.bron || i.map)}</span>
         <span>${relDate(i.opgeslagen)}</span>
         ${i.markeringen ? `<span class="hl-count" title="${i.markeringen} markering${i.markeringen === 1 ? '' : 'en'}">${icon('marker')}${i.markeringen}</span>` : ''}
+        ${doelOf(i) === 'maken' ? `<span class="maak-badge" title="Om na te maken">${icon('video')}</span>` : ''}
         ${isLeren(i) ? `<span class="les-count" title="${i.lessen ? `${i.lessen} les${i.lessen === 1 ? '' : 'sen'}` : 'Om van te leren, nog geen lessen'}">${icon('bulb')}${i.lessen || ''}</span>` : ''}
         ${i.ster ? `<span class="star-mini">${icon('star', true)}</span>` : ''}
         <span class="score ${scoreClass(i.rank)}" title="Basis ${i.score}, geleerd ${i.boost >= 0 ? '+' : ''}${i.boost}">${shown(i.rank)}</span>
@@ -984,7 +992,7 @@ function listHtml() {
   }
   const items = visibleItems();
   const searching = parseQuery(S.q).length;
-  const unread = S.items.filter((i) => i.status === 'nieuw' && (!S.map || i.map === S.map) && isLeren(i) === (S.doel === 'leren')).length;
+  const unread = S.items.filter((i) => i.status === 'nieuw' && (!S.map || i.map === S.map) && doelOf(i) === S.doel).length;
   const banner = !searching && unread >= 2 && ['actief', 'nieuw'].includes(S.filter)
     ? `<button class="sort-banner" data-action="nav" data-href="#/sorteren"><span class="mini-deck" aria-hidden="true"><i></i><i></i><i></i></span><span class="sort-text"><b>${unread} ongelezen</b><small>Snel sorteren: veeg naar rechts of links</small></span><span class="chev-r">${icon('chevron')}</span></button>`
     : '';
@@ -992,7 +1000,8 @@ function listHtml() {
   if (items.length && S.stapels && !searching) return busy + banner + stackedHtml(items);
   const none = searching ? 'Niets gevonden, ook niet in de volledige tekst.'
     : S.doel === 'leren' && !S.items.some(isLeren) ? 'Nog niets om van te leren. Open een item, bijvoorbeeld een video over storytelling, en kies <b>Om van te leren</b>. Nieuwe links over het maken van content komen hier vanzelf.'
-      : 'Niets gevonden met dit filter.';
+      : S.doel === 'maken' && !S.items.some((i) => doelOf(i) === 'maken') ? 'Nog geen video\'s om na te maken. Open een post die je zelf in je eigen stijl wilt maken en kies <b>Om na te maken</b>. Daar begin je met een videoscript.'
+        : 'Niets gevonden met dit filter.';
   return busy + banner + hint + (items.length ? items.map(card).join('') : `<div class="empty"><p>${none}</p></div>`);
 }
 
@@ -1040,7 +1049,7 @@ function stackedHtml(items) {
 }
 
 function chipsHtml() {
-  const base = (S.map ? S.items.filter((i) => i.map === S.map) : S.items).filter((i) => isLeren(i) === (S.doel === 'leren'));
+  const base = (S.map ? S.items.filter((i) => i.map === S.map) : S.items).filter((i) => doelOf(i) === S.doel);
   const count = {
     actief: base.filter(isActive).length,
     nieuw: base.filter((i) => i.status === 'nieuw').length,
@@ -1052,12 +1061,13 @@ function chipsHtml() {
     <button class="chip stapel-chip ${S.stapels ? 'active' : ''}" data-action="toggle-stapels" aria-pressed="${S.stapels}" title="Items over hetzelfde verhaal als één stapel">${icon('layers')}Stapels</button>`;
 }
 
-// Two kinds of saved items: material to post about, and makers to learn from.
+// Three kinds of saved items: material to post about, examples for a video
+// of your own, and makers to learn from. On a phone the labels are short.
+const DOEL_KORT = { posten: 'Posten', maken: 'Na maken', leren: 'Leren' };
+const DOEL_ICON = { posten: 'feed', maken: 'video', leren: 'bulb' };
 function doelSegHtml() {
   const base = (S.map ? S.items.filter((i) => i.map === S.map) : S.items).filter(isActive);
-  const n = base.filter(isLeren).length;
-  const btn = (v, label, count) => `<button class="${S.doel === v ? 'on' : ''}" data-action="doel" data-v="${v}" aria-pressed="${S.doel === v}">${v === 'leren' ? icon('bulb') : icon('feed')}<span class="lbl">${label}</span><span class="n">${count}</span></button>`;
-  return btn('posten', 'Om te posten', base.length - n) + btn('leren', 'Om van te leren', n);
+  return DOELEN.map((v) => `<button class="${S.doel === v ? 'on' : ''}" data-action="doel" data-v="${v}" aria-pressed="${S.doel === v}" aria-label="${DOEL_LABEL[v]}">${icon(DOEL_ICON[v])}<span class="lbl"><span class="lang">${DOEL_LABEL[v]}</span><span class="kort">${DOEL_KORT[v]}</span></span><span class="n">${base.filter((i) => doelOf(i) === v).length}</span></button>`).join('');
 }
 
 // Newspaper-style line above the feed title: weekday, date and what is unread.
@@ -1135,8 +1145,7 @@ function detailHtml() {
     <div class="meta-line">${d.bron ? `<span>${esc(d.bron)}</span>` : ''}${d.auteur ? `<span>${esc(d.auteur)}</span>` : ''}<span>${esc(d.status)}</span></div>
     ${d.invalid ? '<div class="panel error-text">De eigenschappen van deze notitie zijn ongeldig (YAML). Herstel ze in Obsidian; tot die tijd kun je hem hier niet aanpassen.</div>' : `
     <div class="doel-switch" role="radiogroup" aria-label="Waarvoor bewaar je dit?">
-      <button role="radio" aria-checked="${!isLeren(d)}" class="${isLeren(d) ? '' : 'on'}" data-action="set-doel" data-v="posten">${icon('feed')}<span><b>Om te posten</b><small>Materiaal voor je eigen content</small></span></button>
-      <button role="radio" aria-checked="${isLeren(d)}" class="${isLeren(d) ? 'on' : ''}" data-action="set-doel" data-v="leren">${icon('bulb')}<span><b>Om van te leren</b><small>Hoe deze maker het doet</small></span></button>
+      ${[['posten', 'Materiaal voor je eigen content'], ['maken', 'Voorbeeld voor je eigen video'], ['leren', 'Hoe deze maker het doet']].map(([v, sub]) => `<button role="radio" aria-checked="${doelOf(d) === v}" class="${doelOf(d) === v ? 'on' : ''}" data-action="set-doel" data-v="${v}">${icon(DOEL_ICON[v])}<span><b>${DOEL_LABEL[v]}</b><small>${sub}</small></span></button>`).join('')}
     </div>`}
     <div class="action-row">
       <button class="icon-btn ${d.ster ? 'on' : ''}" data-action="star" data-pop="star" aria-pressed="${d.ster}" aria-label="Ster">${icon('star', d.ster)}</button>
@@ -1150,7 +1159,7 @@ function detailHtml() {
     <div class="scorebox"><div class="big">${rollHtml(shown(d.rank), 'score')}</div><div class="why">${d.ordening === 'haiku' ? 'Geordend met Claude Haiku.' : d.ordening === BY_HAND ? 'Door jou in deze map gezet.' : d.ordening === UNSURE ? 'Nog geen map: de app is niet zeker.' : d.ordening ? `Map gekozen via ${esc(d.ordening)}.` : ''}<br><span class="small">Basis ${d.score} ${d.boost >= 0 ? '+' : ''}${d.boost} geleerd${d.ster ? ', +15 ster' : ''}${d.oordeel ? `, ${d.oordeel > 0 ? '+' : ''}${d.oordeel * 10} duim` : ''}</span></div></div>
     ${usedInHtml(d)}
     ${transcriptPanel(d)}
-    ${isLeren(d) ? learnPanel(d) : `<div class="panel">
+    ${isLeren(d) ? learnPanel(d) : doelOf(d) === 'maken' ? remakePanel(d) : `<div class="panel">
       <h3>Maak er content van</h3>
       <p class="small muted">Je krijgt een kant-en-klare prompt voor Claude of ChatGPT.</p>
       <div class="make-row">
@@ -1345,6 +1354,28 @@ async function pasteTranscript() {
   const tekst = transcriptFromPaste(raw).slice(0, 200000);
   if (tekst.length < 40 || /^https?:\/\/\S+$/.test(tekst)) return toast('Op je klembord staat geen transcript. Kopieer het eerst.', { soort: 'fout' });
   return saveTranscript(d.id, tekst, `Transcript bewaard: ${words(tekst).toLocaleString('nl-NL')} woorden`);
+}
+
+// For an example to make your own video from: the script comes first, then
+// the Teleprompter, then recording and posting.
+function remakePanel(d) {
+  const video = TRANSCRIPT_TYPES.includes(d.type) && !getSection(d.body || '', TRANSCRIPT);
+  const prods = productionsOf(d.id).filter((p) => p.soort === 'videoscript');
+  return `<div class="panel remake-panel">
+    <h3>${icon('video')}Maak je eigen versie</h3>
+    <ol class="remake-steps">
+      <li class="${prods.length ? 'done' : 'now'}"><b>Videoscript</b><small>Het format van deze video, met jouw onderwerp</small></li>
+      <li><b>Teleprompter</b><small>Zet het script erin en lees het voor</small></li>
+      <li><b>Opnemen en posten</b><small>Markeer hem als gepost, dan volgt de app de cijfers</small></li>
+    </ol>
+    ${video ? `<p class="small muted">Tip: ${d.type === 'youtube' ? 'haal hierboven het transcript op' : 'plak hierboven het transcript'}, dan ziet Claude hoe de video is opgebouwd.</p>` : ''}
+    <p class="small muted">Schrijf in <b>Mijn notities</b> waar jouw video over moet gaan. Dat gaat mee in de prompt.</p>
+    <div class="make-row">
+      <button class="btn primary" data-action="make" data-v="videoscript">${icon('sparkle')}Maak videoscript</button>
+      <button class="btn ghost" data-action="select" data-id="${esc(d.id)}">${S.selected.has(d.id) ? 'In selectie' : 'Combineer met andere inspiratie'}</button>
+    </div>
+    ${prods.length ? `<div class="remake-done">${prods.slice(0, 3).map(productionRow).join('')}</div>` : ''}
+  </div>`;
 }
 
 // For an item to learn from: a prompt that pulls the lessons out, and the
@@ -2794,6 +2825,7 @@ function bulkSheetHtml() {
         <div class="row"><input id="bulk-tag" placeholder="bijvoorbeeld agents" autocomplete="off" autocapitalize="off" style="flex:1;min-width:0"><button class="btn" data-action="bulk" data-v="tag">Voeg toe</button></div></div>
       <div class="make-row">
         <button class="btn" data-action="bulk" data-v="ster">${icon('star')}Ster</button>
+        <button class="btn" data-action="bulk" data-v="maken">${icon('video')}Om na te maken</button>
         <button class="btn" data-action="bulk" data-v="leren">${icon('bulb')}Om van te leren</button>
         <button class="btn" data-action="bulk" data-v="posten">${icon('feed')}Om te posten</button>
         <button class="btn" data-action="bulk" data-v="archief">${icon('archive')}Archiveer</button>
@@ -2828,7 +2860,7 @@ async function bulkApply(kind, value) {
   // Archived or set apart to learn from: they leave the feed, so the selection ends.
   if (['archief', 'leren'].includes(kind)) S.selected.clear();
   render();
-  const wat = { map: `verplaatst naar ${value}`, tag: `getagd met ${tag}`, ster: 'kregen een ster', archief: 'gearchiveerd', leren: 'staan bij Om van te leren', posten: 'staan bij Om te posten' }[kind];
+  const wat = { map: `verplaatst naar ${value}`, tag: `getagd met ${tag}`, ster: 'kregen een ster', archief: 'gearchiveerd', leren: 'staan bij Om van te leren', maken: 'staan bij Om na te maken', posten: 'staan bij Om te posten' }[kind];
   if (!done) return toast('Dat was al zo voor deze items');
   toast(`${done} ${done === 1 ? 'item' : 'items'} ${wat}`.replace(/^1 item kregen/, '1 item kreeg').replace(/^1 item staan/, '1 item staat'), { soort: 'ok', duur: 6000, actie: async () => {
     for (const { id, was } of before) {
@@ -2863,6 +2895,7 @@ function shareHtml() {
     <h1>${s.r.dubbel ? 'Stond er al in' : s.r.eigen ? 'Je eigen post staat op gepost' : 'Bewaard'}</h1>
     <p class="muted">${esc(s.r.titel)}</p>
     <p class="small muted">${s.r.eigen ? 'In je Content-archief' : `In de map ${esc(s.r.map)}`}</p>
+    ${s.r.eigen || !s.r.id ? '' : `<div class="share-doel" role="radiogroup" aria-label="Waarvoor bewaar je dit?">${DOELEN.map((v) => `<button role="radio" aria-checked="${doelOf(s.r) === v}" class="${doelOf(s.r) === v ? 'on' : ''}" data-action="share-doel" data-v="${v}">${icon(DOEL_ICON[v])}${DOEL_KORT[v]}</button>`).join('')}</div>`}
     <div class="row" style="margin-top:16px"><button class="btn block" data-action="close-window">Sluiten</button><button class="btn primary block" data-action="share-done">Open app</button></div>
   </div></div>`;
 }
@@ -3034,7 +3067,7 @@ async function patchItem(id, body) {
       correction = { from: meta.map, to: patch.map };
     }
     if ('doel' in body) {
-      const doel = body.doel === 'leren' ? 'leren' : undefined;
+      const doel = body.doel === 'leren' || body.doel === 'maken' ? body.doel : undefined;
       if (doel !== meta.doel) {
         patch.doel = doel;
         v.learner.maker(meta.auteur, doel || 'posten');
@@ -3756,18 +3789,19 @@ const actions = {
     if (m) toast(`Verplaatst naar ${m.map}. De machine leert hiervan.`);
   },
   doel: (el) => {
-    S.doel = el.dataset.v === 'leren' ? 'leren' : 'posten';
+    S.doel = DOELEN.includes(el.dataset.v) ? el.dataset.v : 'posten';
     local.set('cm_doel', S.doel);
     renderList();
   },
   'set-doel': async (el) => {
     const id = S.detail.id;
-    const naar = el.dataset.v === 'leren' ? 'leren' : 'posten';
-    if (naar === (isLeren(S.detail) ? 'leren' : 'posten')) return;
+    const naar = DOELEN.includes(el.dataset.v) ? el.dataset.v : 'posten';
+    const van = doelOf(S.detail);
+    if (naar === van) return;
     if (naar === 'leren') S.selected.delete(id);
     const m = await patchItem(id, { doel: naar });
-    if (m) toast(naar === 'leren' ? 'Staat nu bij Om van te leren. De machine leert hiervan.' : 'Staat weer bij Om te posten', {
-      actie: () => patchItem(id, { doel: naar === 'leren' ? 'posten' : 'leren' }),
+    if (m) toast({ leren: 'Staat nu bij Om van te leren. De machine leert hiervan.', maken: 'Staat nu bij Om na te maken. Begin met het videoscript.', posten: 'Staat weer bij Om te posten' }[naar], {
+      actie: () => patchItem(id, { doel: van }),
     });
   },
   'edit-title': () => {
@@ -4354,6 +4388,21 @@ const actions = {
     S.ready = false;
     S.items = [];
     go('#/');
+  },
+  // Right after sharing: say what the post is for, without opening the app.
+  'share-doel': async (el) => {
+    const r = S.sharing?.r;
+    const naar = DOELEN.includes(el.dataset.v) ? el.dataset.v : 'posten';
+    if (!r?.id || !S.vault?.has(r.id) || doelOf(r) === naar) return;
+    try {
+      const m = await S.vault.update(r.id, { doel: naar === 'posten' ? undefined : naar });
+      if (naar !== 'maken') S.vault.learner.maker(m.auteur, naar);
+      S.sharing = { ...S.sharing, r: { ...r, doel: m.doel } };
+      render();
+      await S.vault.flush();
+    } catch (e) {
+      toast(e.message, { soort: 'fout' });
+    }
   },
   'share-done': () => {
     S.sharing = null;

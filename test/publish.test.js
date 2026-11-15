@@ -25,7 +25,7 @@ test('code: an answer finds its way back by its code, and the code never shows',
 });
 
 test('prompts: one post for X, a thread apart, Threads and YouTube, your own language', () => {
-  assert.deepEqual(Object.keys(SOORTEN), ['linkedin', 'x', 'xthread', 'threads', 'instagram', 'carrousel', 'tiktok', 'youtube', 'nieuwsbrief', 'vrij']);
+  assert.deepEqual(Object.keys(SOORTEN), ['linkedin', 'x', 'xthread', 'threads', 'instagram', 'carrousel', 'tiktok', 'videoscript', 'youtube', 'nieuwsbrief', 'vrij']);
   const x = buildPrompt({ soort: 'x', items: [] });
   assert.match(x, /Schrijf één post voor X voor mij\. Geen thread\./);
   assert.match(x, /## Alternatives/);
@@ -220,4 +220,30 @@ test('own posts: recognised by your handle, matched to what you made', () => {
   assert.equal(matchProduction(prods, 'x', 'A post that I wrote by hand about pricing and sales.', texts, now), null, 'not made here');
   assert.equal(matchProduction(prods, 'linkedin', '', texts, now).file, 'c.md', 'no text, one candidate');
   assert.equal(matchProduction(prods, 'x', '', texts, now), null, 'no text, two candidates: no guess');
+});
+
+test('videoscript: your own version of a video you saved as an example', async () => {
+  const { normalizeMeta } = await import('../lib/frontmatter.js');
+  const { Learner, emptyState } = await import('../lib/learn.js');
+  assert.equal(normalizeMeta({ id: 'a', titel: 'T', doel: 'Maken' }).doel, 'maken');
+  assert.equal(normalizeMeta({ id: 'a', titel: 'T', doel: 'iets' }).doel, undefined);
+  const item = { meta: { titel: 'Drie fouten met AI-agents', type: 'tiktok', auteur: '@maker', url: 'https://www.tiktok.com/@maker/video/1' }, body: '# Drie fouten\n\n## Mijn notities\n\nOver AI in de bouw\n\n## Bron\n\nfragment\n' };
+  const prompt = buildPrompt({ soort: 'videoscript', items: [item], code: 'cm-abc23' });
+  assert.match(prompt, /Neem het format over, niet de inhoud/);
+  assert.match(prompt, /## Hook \(0 tot 3 sec\)/);
+  assert.match(prompt, /Mijn eigen notities \(weegt zwaar\):\nOver AI in de bouw/);
+  assert.match(prompt, /Schrijf alles in het Nederlands/);
+  assert.match(prompt, /cm-abc23/);
+  const answer = ['# Drie fouten in de bouw', '', '## Format', '', '- Opent met het resultaat', '- Drie snelle stappen', '', '## Hook (0 tot 3 sec)', '', 'Dit kostte een aannemer 40 uur. [tekst op scherm: 40 uur]', '', '## Fout 1', '', 'Je begint met de tool.', '', '## Caption', '', 'Drie fouten die ik elke week zie', '', '## Alternatieve hooks', '', '- Stop met dit', '- Niemand vertelt je dit', '', 'cm-abc23'].join('\n');
+  const out = outputFor('videoscript', answer);
+  assert.equal(out.kanaal, 'tiktok');
+  assert.deepEqual(out.blokken.map((b) => [b.naam, b.rol]), [['Format van de inspiratie', 'tekst'], ['Script', 'script'], ['Caption', 'post'], ['Andere hook 1', 'keuze'], ['Andere hook 2', 'keuze']]);
+  const script = out.blokken[1].tekst;
+  assert.ok(script.includes('Dit kostte een aannemer 40 uur') && script.includes('Je begint met de tool.'), 'the script holds every block');
+  assert.ok(!script.includes('Opent met het resultaat') && !script.includes('cm-abc23'), 'without the format notes and the code, ready for the Teleprompter');
+  if (Learner) {
+    const l = new Learner(emptyState());
+    l.maker('@maker', 'maken');
+    assert.deepEqual(l.state.makers, {}, 'an example for a video says nothing about the maker');
+  }
 });

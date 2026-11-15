@@ -24,6 +24,7 @@
   --good: #2ea56f;
   --bad: #e0533d;
   --violet: #8b7cf6;
+  --coral: #e2683f;
   --sky: #6aa8f0;
   --rose: #f08fb0;
   --mint: #5cc49a;
@@ -656,7 +657,36 @@ img.video-preview { height: auto; }
 .title-edit input { flex: 1 1 260px; font-family: var(--serif); font-size: 22px; font-weight: 500; padding: 10px 14px; border-radius: 16px; }
 .title-hint { margin: 0 0 8px; }
 
-.doel-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0 4px; }
+.doel-switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px 0 4px; }
+/* Three side by side on a phone: icon above, the short line goes. */
+@media (max-width: 520px) {
+  .doel-switch button { flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px 11px; }
+  .doel-switch button b { font-size: 13.5px; line-height: 1.2; }
+  .doel-switch button small { display: none; }
+}
+.doel-switch button[data-v=maken].on { background: var(--coral); border-color: var(--coral); }
+.doel-seg button[data-v=maken].on { background: var(--coral); }
+.doel-seg .lbl .kort { display: none; }
+@media (max-width: 520px) { .doel-seg .lbl .lang { display: none; } .doel-seg .lbl .kort { display: inline; } }
+.maak-badge { display: inline-flex; align-items: center; color: var(--coral); }
+.maak-badge svg { width: 14px; height: 14px; }
+.card .maak-badge { margin-left: auto; }
+.card .maak-badge + .les-count { margin-left: 0; }
+.remake-panel { background: linear-gradient(160deg, #fdeee8, #fff 70%); }
+.remake-panel h3 { display: flex; align-items: center; gap: 8px; }
+.remake-panel h3 svg { width: 18px; height: 18px; color: var(--coral); }
+.remake-steps { list-style: none; counter-reset: stap; margin: 4px 0 12px; padding: 0; display: grid; gap: 8px; }
+.remake-steps li { counter-increment: stap; display: grid; grid-template-columns: 28px 1fr; column-gap: 10px; align-items: center; }
+.remake-steps li::before { content: counter(stap); grid-row: span 2; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-2); font-weight: 700; font-size: 13px; }
+.remake-steps li.now::before { background: var(--coral); color: #fff; }
+.remake-steps li.done::before { content: '\2713'; background: var(--good); color: #fff; }
+.remake-steps b { font-size: 14.5px; }
+.remake-steps small { color: var(--muted); font-size: 12.5px; }
+.remake-done { margin-top: 12px; display: grid; gap: 8px; }
+.share-doel { display: flex; gap: 6px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+.share-doel button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--card); color: var(--text); padding: 8px 12px; border-radius: 999px; font: inherit; font-size: 14px; cursor: pointer; }
+.share-doel button svg { width: 15px; height: 15px; }
+.share-doel button.on { background: var(--text); border-color: var(--text); color: #fff; }
 .doel-switch button { display: flex; align-items: center; gap: 10px; text-align: left; border: 1px solid var(--border); background: var(--card); color: var(--text); padding: 11px 14px; border-radius: 18px; font: inherit; cursor: pointer; transition: background-color .15s, border-color .15s, transform .12s; }
 .doel-switch button:active { transform: scale(.98); }
 .doel-switch button svg { flex: none; width: 18px; height: 18px; color: var(--muted); }

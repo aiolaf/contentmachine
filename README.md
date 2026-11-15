@@ -370,14 +370,15 @@ Op het stuk zelf staat dezelfde kopieerknop, voor als je niets wilt aanpassen.
 
 Kanalen, taal en weekdoelen staan in `_systeem/kanalen.json`, dus je iPhone en je Mac zijn het eens. In Obsidian zie je bij elk stuk in `Concepten/` de eigenschappen `status`, `gepost`, `link` en de cijfers.
 
-## Om te posten of om van te leren
+## Om te posten, om na te maken of om van te leren
 
 Niet alles wat je bewaart is materiaal voor een post. Een video van Kallaway over storytelling bewaar je niet om erover te posten, maar om te leren hoe hij het doet. Daarom heeft elk item een doel:
 
 - **Om te posten**: materiaal voor je eigen content, zoals nieuws, cases en meningen. Dit is de gewone feed.
-- **Om van te leren**: hoe een andere maker het doet. Bovenaan de feed schakel je tussen de twee; zoeken kijkt altijd in allebei.
+- **Om na te maken**: een post of video die je in je eigen versie wilt maken. Het format spreekt je aan (de hook, de opbouw, hoe het in beeld staat), het onderwerp wordt het jouwe.
+- **Om van te leren**: hoe een andere maker het doet. Bovenaan de feed schakel je tussen de drie (op de iPhone: Posten, Na maken, Leren); zoeken kijkt altijd in alle drie.
 
-Op elk item kies je het met twee knoppen onder de titel. Nieuwe links over het maken van content (storytelling, copywriting, hooks, kijkduur en dergelijke) komen vanzelf bij **Om van te leren**. Zet je een paar items zelf om, dan leert de app daarvan, net als bij mappen. Eigen woorden geef je op met een regel `Leren: woord, woord` in `_systeem/regels.md`; die regel vervangt dan de standaardwoorden en wordt geen map.
+Op elk item kies je het met drie knoppen onder de titel. Direct na het delen vanuit je iPhone kies je het ook al, op het scherm **Bewaard**. Meerdere items tegelijk zet je om via de selectie (de map-knop in de balk onderaan). Nieuwe links over het maken van content (storytelling, copywriting, hooks, kijkduur en dergelijke) komen vanzelf bij **Om van te leren**. Zet je een paar items zelf om, dan leert de app daarvan, net als bij mappen. Eigen woorden geef je op met een regel `Leren: woord, woord` in `_systeem/regels.md`; die regel vervangt dan de standaardwoorden en wordt geen map.
 
 Een item om van te leren heeft geen knoppen voor content, maar het paneel **Leer ervan**:
 
@@ -385,7 +386,15 @@ Een item om van te leren heeft geen knoppen voor content, maar het paneel **Leer
 2. Plak het antwoord bij **Lessen**, of schrijf ze zelf. Ze komen in de notitie onder `## Lessen` en het aantal staat op de kaart.
 3. **Pas toe in de Studio**: in de Studio kies je onder **Technieken toepassen** welke lessen meegaan. Je prompt krijgt dan een stuk "Technieken die ik wil toepassen", met de vraag ze te gebruiken zonder de technieken of makers te noemen.
 
-In Obsidian staat het doel als eigenschap `doel: leren`. Zonder die eigenschap is een item om te posten.
+Een item om na te maken heeft het paneel **Maak je eigen versie**, met drie stappen:
+
+1. **Videoscript**. De knop **Maak videoscript** maakt een prompt die het format van de inspiratie overneemt en niet de inhoud: zelfde soort hook, opbouw en tempo, met jouw onderwerp en jouw invalshoek. Zet in **Mijn notities** waar jouw video over moet gaan; dat weegt zwaar. Bij een video helpt een transcript (zie Transcript van een video). Het antwoord begint met **Format**: wat er van de inspiratie is overgenomen. Dat staat in de app apart en gaat niet mee naar de Teleprompter. Daarna het script per blok, een caption en drie andere hooks. Kies je meer items om na te maken en open je de Studio, dan staat die al op **Videoscript**.
+2. **Teleprompter**. Bij het script staat **Zet in Teleprompter**.
+3. **Opnemen en posten**. Markeer hem als gepost op TikTok of Reels, dan volgt de app de cijfers.
+
+Is het script gemaakt, dan is stap 1 afgevinkt en staat het script onder het paneel.
+
+In Obsidian staat het doel als eigenschap `doel: leren` of `doel: maken`. Zonder die eigenschap is een item om te posten.
 
 ## Titels aanpassen
 
