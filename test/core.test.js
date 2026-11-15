@@ -1026,3 +1026,16 @@ test('video: the share-sheet shortcut opens the downloader with the link', async
   for (const soort of ['linkedin', 'nieuwsbrief', 'carrousel']) assert.match(buildPrompt({ soort, items: [] }), /## Taal\n\nSchrijf alles in het Nederlands, ook als de bronnen/);
   assert.match(buildPrompt({ soort: 'instagram', items: [] }), /## Reel[\s\S]*## Alternative hooks/);
 });
+
+test('pipeline: a long note gets a title that ends at a sentence or a whole word', async () => {
+  const store = new LocalStore({ storage: memoryStorage() });
+  const vault = new Vault(store, { root: 'Contentmachine' });
+  vault.flushDelay = 10_000;
+  await vault.load();
+  const a = await processCapture(vault, { text: 'Agents nemen de planning van teams over, blijkt uit onderzoek bij drie bedrijven. Dat scheelt uren per week.' }, { fetchImpl: noFetch });
+  assert.equal(a.titel, 'Agents nemen de planning van teams over, blijkt uit onderzoek bij drie bedrijven.');
+  const b = await processCapture(vault, { text: 'Een idee zonder punt dat maar doorgaat en doorgaat over agents en automatisering en nog veel meer dingen die ik wil onthouden' }, { fetchImpl: noFetch });
+  assert.equal(b.titel, 'Een idee zonder punt dat maar doorgaat en doorgaat over agents en automatisering en...');
+  const c = await processCapture(vault, { text: 'Kort idee' }, { fetchImpl: noFetch });
+  assert.equal(c.titel, 'Kort idee');
+});

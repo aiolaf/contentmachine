@@ -667,8 +667,16 @@ img.video-preview { height: auto; }
 .doel-switch button[data-v=leren].on { background: var(--violet); border-color: var(--violet); }
 
 .learn-panel { background: linear-gradient(160deg, var(--tint-lav), #fff 70%); }
-.learn-panel h3, .techniques h3 { display: flex; align-items: center; gap: 8px; }
-.learn-panel h3 svg, .techniques h3 svg { width: 18px; height: 18px; color: #5b4bd6; }
+.learn-panel h3, .techniques h3, .transcript-panel h3 { display: flex; align-items: center; gap: 8px; }
+.learn-panel h3 svg, .techniques h3 svg, .transcript-panel h3 svg { width: 18px; height: 18px; color: #5b4bd6; }
+.speak-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 14px; }
+.speak-row .speak-tempo { margin-left: auto; font-variant-numeric: tabular-nums; }
+.speak-row .speak-pos { font-variant-numeric: tabular-nums; }
+.select-bar .select-more { width: 38px; height: 38px; border: 0; background: var(--bg-2); flex: none; }
+/* On a narrow phone the faces make room for the buttons. */
+@media (max-width: 420px) { .select-bar .faces { display: none; } }
+kbd { display: inline-block; min-width: 26px; padding: 2px 7px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 8px; background: var(--card); font: 600 12px/1.5 var(--font); text-align: center; }
+.kv.keys dt { white-space: nowrap; }
 .learn-panel textarea { background: rgba(255, 255, 255, .9); }
 .tech-list { display: grid; gap: 8px; margin-top: 8px; }
 .tech { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 1px solid var(--border); background: var(--card); color: var(--text); padding: 10px 12px; border-radius: 16px; font: inherit; cursor: pointer; transition: background-color .15s, border-color .15s; }

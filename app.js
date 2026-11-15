@@ -16,7 +16,8 @@ import { buildPrompt, buildLessonPrompt, chatLinks, SOORTEN as PROMPT_SOORTEN } 
 import { trainModel, classify, parseRules, suggestTags, BY_HAND, UNSURE } from './lib/classify.js';
 import { REGELS, REGELS_V1 } from './lib/seeds.js';
 import { PAGE_WORDS, FILLER } from './lib/words.js';
-import { STATUSES, getSection, setSection, removeSection, parseNote, NOTES } from './lib/frontmatter.js';
+import { STATUSES, getSection, setSection, removeSection, parseNote, NOTES, TRANSCRIPT } from './lib/frontmatter.js';
+import { findTranscript, transcriptFromPaste, ytdlpSubsCommand } from './lib/transcript.js';
 import { lessonsOf, withLessons } from './lib/lessons.js';
 import { fold, plainText, parseQuery, matchItem, snippet } from './lib/search.js';
 import { parseHighlights, withHighlights, cleanHighlight, sameHighlight, MARKERINGEN } from './lib/highlights.js';
@@ -82,7 +83,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '33 (15 nov 2026)';
+const VERSIE = '34 (15 nov 2026)';
 // The Teleprompter lives in teleprompter/ on the same site; it shows a link back here.
 const TELEPROMPTER_URL = 'teleprompter/?van=contentmachine';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
@@ -164,6 +165,8 @@ const S = {
   video: null,
   // Feed: material to post about, or items saved to learn from.
   doel: local.get('cm_doel', 'posten') === 'leren' ? 'leren' : 'posten',
+  // How fast an item is read aloud: a place in TEMPO.
+  tempo: Number(local.get('cm_tempo', 0)) || 0,
   titelEdit: false,
   // Items to learn from whose lessons go along in the next prompt.
   lessen: new Set(),
@@ -813,7 +816,8 @@ function md(src) {
 // Notes and highlights have their own place in the detail view. Same rule as
 // the vault: notes end only at a heading the app writes.
 function withoutNotes(body, image) {
-  const out = removeSection(body.replace(/^## Mijn notities[ \t]*\n[\s\S]*?(?=^## (?:Kernpunten|Content-ideeën|Markeringen|Bron)[ \t]*$|(?![\s\S]))/m, ''), MARKERINGEN);
+  // Notes and lessons have a field of their own; the transcript is read here.
+  const out = removeSection(removeSection(body.replace(/^## Mijn notities[ \t]*\n[\s\S]*?(?=^## (?:Kernpunten|Content-ideeën|Lessen|Markeringen|Transcript|Bron)[ \t]*$|(?![\s\S]))/m, ''), 'Lessen'), MARKERINGEN);
   // The preview already shows as the large image at the top.
   return image ? out.split(`![](${image})`).join('') : out;
 }
@@ -863,6 +867,8 @@ async function onRoute() {
     S.productie = null;
   }
   hideMarkBar();
+  // The voice stops when you leave the item it is reading.
+  if (speech && (S.view !== 'item' || S.param !== speech.id)) stopSpeech();
   if (S.view === 'item' && S.param !== S.openedId) {
     if (['feed', 'map'].includes(prev)) S.feedScroll = isDesktop() ? $('.main')?.scrollTop || 0 : window.scrollY;
     S.openedId = S.param;
@@ -1143,6 +1149,7 @@ function detailHtml() {
     </div>
     <div class="scorebox"><div class="big">${rollHtml(shown(d.rank), 'score')}</div><div class="why">${d.ordening === 'haiku' ? 'Geordend met Claude Haiku.' : d.ordening === BY_HAND ? 'Door jou in deze map gezet.' : d.ordening === UNSURE ? 'Nog geen map: de app is niet zeker.' : d.ordening ? `Map gekozen via ${esc(d.ordening)}.` : ''}<br><span class="small">Basis ${d.score} ${d.boost >= 0 ? '+' : ''}${d.boost} geleerd${d.ster ? ', +15 ster' : ''}${d.oordeel ? `, ${d.oordeel > 0 ? '+' : ''}${d.oordeel * 10} duim` : ''}</span></div></div>
     ${usedInHtml(d)}
+    ${transcriptPanel(d)}
     ${isLeren(d) ? learnPanel(d) : `<div class="panel">
       <h3>Maak er content van</h3>
       <p class="small muted">Je krijgt een kant-en-klare prompt voor Claude of ChatGPT.</p>
@@ -1164,20 +1171,191 @@ function detailHtml() {
     <div class="field"><label for="tags-input">Tags (komma's)</label><input id="tags-input" value="${esc((d.tags || []).join(', '))}" autocomplete="off"></div>
     <div class="field"><label for="notes">Mijn notities <span id="notes-state" class="small"></span></label><textarea id="notes" rows="4" placeholder="Jouw gedachten, invalshoek of hook. Gaat mee in de prompt en staat ook in Obsidian.">${esc(d.notities || '')}</textarea></div>
     ${highlightsPanel(d)}
+    ${speechHtml(d)}
     <div class="md" id="reader">${md(withoutNotes(d.body || '', image))}</div>
     <p class="small muted">Bestand: ${esc(d.path)}</p>
   </div>`;
 }
 
+// ---------- read aloud ----------
+// The browser's own voice reads an item to you: free, and nothing leaves the device.
+const canSpeak = () => 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+const TEMPO = [1, 1.25, 1.5, 0.85];
+let speech = null; // { id, parts, n, lang, aan }
+
+// Dutch or English, from the small words: the voice has to match the text.
+function speechLang(text) {
+  const w = text.toLowerCase().split(/[^a-zà-ÿ]+/).slice(0, 400);
+  const count = (list) => w.filter((x) => list.includes(x)).length;
+  return count(['de', 'het', 'een', 'en', 'van', 'niet', 'dat', 'voor', 'maar', 'je', 'ook', 'zijn']) >= count(['the', 'and', 'of', 'to', 'that', 'for', 'with', 'you', 'this', 'are', 'it', 'not']) ? 'nl-NL' : 'en-US';
+}
+
+// Short pieces: a browser stops halfway a long text, and you can pause between them.
+function speechParts(text) {
+  const parts = [];
+  for (const para of text.split(/\n+/).map((x) => x.trim()).filter(Boolean)) {
+    let cur = '';
+    for (const sent of para.match(/[^.!?…]+[.!?…]*["')\]]*\s*/g) || [para]) {
+      if (cur && (cur + sent).length > 220) {
+        parts.push(cur.trim());
+        cur = '';
+      }
+      cur += sent;
+    }
+    if (cur.trim()) parts.push(cur.trim());
+  }
+  return parts;
+}
+
+function speakNext() {
+  const now = speech;
+  if (!now || !now.aan) return;
+  if (now.n >= now.parts.length) return stopSpeech();
+  const u = new SpeechSynthesisUtterance(now.parts[now.n]);
+  u.lang = now.lang;
+  u.rate = TEMPO[S.tempo] || 1;
+  const voice = speechSynthesis.getVoices().find((x) => x.lang?.replace('_', '-').toLowerCase().startsWith(now.lang.slice(0, 2)) && x.localService) || speechSynthesis.getVoices().find((x) => x.lang?.replace('_', '-').toLowerCase().startsWith(now.lang.slice(0, 2)));
+  if (voice) u.voice = voice;
+  u.onend = () => {
+    if (speech !== now || !now.aan || now.u !== u) return;
+    now.n++;
+    paintSpeech();
+    speakNext();
+  };
+  u.onerror = (ev) => {
+    if (speech !== now || now.u !== u || ['interrupted', 'canceled'].includes(ev.error)) return;
+    stopSpeech();
+    toast('Voorlezen lukte niet op dit apparaat', { soort: 'fout' });
+  };
+  now.u = u;
+  speechSynthesis.speak(u);
+}
+
+function stopSpeech() {
+  if (!speech) return;
+  speech = null;
+  if (canSpeak()) speechSynthesis.cancel();
+  paintSpeech();
+}
+
+// Start, pause or go on. Pausing stops the voice and remembers the piece: the
+// browser's own pause does not work on every device.
+function toggleSpeech() {
+  const d = S.detail;
+  if (!d || !canSpeak()) return;
+  if (speech?.id === d.id) {
+    speech.aan = !speech.aan;
+    speech.u = null;
+    speechSynthesis.cancel();
+    if (speech.aan) speakNext();
+    return paintSpeech();
+  }
+  if (speech) speechSynthesis.cancel();
+  const text = `${d.titel}.\n${plainText(withoutNotes(d.body || '', '').replace(/^# .*$/m, '').replace(/^## Bron[ \t]*$/m, '')).replace(/https?:\/\/\S+/g, '')}`;
+  speech = { id: d.id, parts: speechParts(text), n: 0, lang: speechLang(text), aan: true, u: null };
+  speakNext();
+  return paintSpeech();
+}
+
+const speechHtml = (d) => {
+  if (!canSpeak()) return '';
+  const mine = speech?.id === d.id;
+  const tempo = String(TEMPO[S.tempo] || 1).replace('.', ',');
+  return `<div class="speak-row" id="speak">
+    <button class="btn" data-action="speak">${icon(mine && speech.aan ? 'x' : 'play', true)}${mine ? (speech.aan ? 'Pauze' : 'Lees verder') : 'Lees voor'}</button>
+    ${mine ? `<span class="small muted speak-pos">${Math.min(speech.n + 1, speech.parts.length)} van ${speech.parts.length}</span><button class="btn ghost" data-action="speak-stop">Stop</button>` : ''}
+    <button class="btn ghost speak-tempo" data-action="speak-tempo" aria-label="Tempo van voorlezen" title="Tempo van voorlezen">${tempo}x</button>
+  </div>`;
+};
+
+// Only the row with the buttons changes, so the text keeps its place.
+function paintSpeech() {
+  const row = $('#speak');
+  if (row && S.detail) row.outerHTML = speechHtml(S.detail);
+}
+
+// What is said in a video. With it Claude can pull the lessons out, your
+// prompts get the real content and the video turns up when you search.
+const TRANSCRIPT_TYPES = ['youtube', 'tiktok', 'instagram'];
+function transcriptPanel(d) {
+  const tekst = getSection(d.body || '', TRANSCRIPT);
+  if (d.invalid || (!tekst && !TRANSCRIPT_TYPES.includes(d.type))) return '';
+  const yt = d.type === 'youtube' && youtubeId(d.url);
+  const busy = S.transcript?.id === d.id && S.transcript.staat === 'bezig';
+  const fout = S.transcript?.id === d.id && S.transcript.staat === 'fout' ? S.transcript.fout : '';
+  if (tekst) {
+    return `<div class="panel transcript-panel">
+      <h3>${icon('feed')}Transcript</h3>
+      <p class="small muted">${words(tekst).toLocaleString('nl-NL')} woorden. Gaat mee in je prompts, je vindt de video terug op wat erin gezegd wordt en je leest het hieronder.</p>
+      <div class="make-row"><button class="btn" data-action="transcript-copy">${icon('copy')}Kopieer</button><button class="btn ghost" data-action="transcript-remove">${icon('trash')}Verwijder</button></div>
+    </div>`;
+  }
+  return `<div class="panel transcript-panel">
+    <h3>${icon('feed')}Transcript</h3>
+    <p class="small muted">Wat er in de video gezegd wordt. Daarmee haalt Claude de lessen eruit en maak je er zelf content van${yt ? '' : '. Kopieer het transcript ergens en plak het hier; een .srt of .vtt mag ook'}.</p>
+    <div class="make-row">
+      ${yt ? `<button class="btn primary" data-action="transcript-fetch" ${busy ? 'disabled aria-busy="true"' : ''}>${icon('download')}${busy ? 'Ophalen...' : 'Haal transcript op'}</button>` : ''}
+      <button class="btn ${yt ? '' : 'primary'}" data-action="transcript-paste">${icon('copy')}Plak transcript</button>
+    </div>
+    ${fout ? `<p class="small error-text">${esc(fout)}</p>${yt ? `<details class="ytdlp" open><summary>Op je Mac met yt-dlp, werkt altijd</summary>
+      <p class="small muted">Deze regel zet de ondertitels als .srt in Downloads. Open dat bestand, kopieer alles en kies hier <b>Plak transcript</b>.</p>
+      <div class="copyline"><code>${esc(ytdlpSubsCommand(yt))}</code><button class="icon-btn" data-action="copy" data-v="${esc(ytdlpSubsCommand(yt))}" aria-label="Kopieer">${icon('copy')}</button></div></details>` : ''}` : ''}
+  </div>`;
+}
+
+async function saveTranscript(id, tekst, melding) {
+  try {
+    const change = (b) => (tekst ? setSection(b, TRANSCRIPT, tekst) : removeSection(b, TRANSCRIPT));
+    const m = await S.vault.update(id, {}, { transform: change });
+    refreshItems();
+    S.transcript = null;
+    if (S.detail?.id === id) {
+      S.detail = detailWith(m, { body: change(S.detail.body || '') });
+      renderDetail();
+    }
+    toast(melding, { soort: 'ok' });
+  } catch (e) {
+    toast(e.message, { soort: 'fout' });
+  }
+}
+
+async function fetchTranscript() {
+  const d = S.detail;
+  if (!d || S.transcript?.staat === 'bezig') return;
+  S.transcript = { id: d.id, staat: 'bezig' };
+  renderDetail();
+  try {
+    const r = await findTranscript(d.url);
+    await saveTranscript(d.id, r.tekst, `Transcript bewaard: ${r.woorden.toLocaleString('nl-NL')} woorden${r.auto ? ', automatisch ondertiteld' : ''}`);
+  } catch (e) {
+    S.transcript = { id: d.id, staat: 'fout', fout: e.message };
+    if (S.detail?.id === d.id) renderDetail();
+  }
+}
+
+async function pasteTranscript() {
+  const d = S.detail;
+  if (!d) return;
+  let raw = '';
+  try {
+    raw = await navigator.clipboard.readText();
+  } catch {
+    return toast('Plakken lukte niet. Zet het transcript dan in Mijn notities.', { soort: 'fout' });
+  }
+  const tekst = transcriptFromPaste(raw).slice(0, 200000);
+  if (tekst.length < 40 || /^https?:\/\/\S+$/.test(tekst)) return toast('Op je klembord staat geen transcript. Kopieer het eerst.', { soort: 'fout' });
+  return saveTranscript(d.id, tekst, `Transcript bewaard: ${words(tekst).toLocaleString('nl-NL')} woorden`);
+}
+
 // For an item to learn from: a prompt that pulls the lessons out, and the
 // lessons themselves, which you can take into the Studio.
 function learnPanel(d) {
-  const video = ['youtube', 'tiktok', 'instagram', 'threads'].includes(d.type);
+  const video = ['youtube', 'tiktok', 'instagram', 'threads'].includes(d.type) && !getSection(d.body || '', TRANSCRIPT);
   const tekst = d.lessenTekst ?? lessonsOf(d.body || '');
   return `<div class="panel learn-panel">
     <h3>${icon('bulb')}Leer ervan</h3>
     <p class="small muted">Wat vertelt deze maker dat jij kunt toepassen? Laat Claude de lessen eruit halen en plak ze hieronder, of schrijf ze zelf.</p>
-    ${video ? '<p class="small muted">Bij een video heeft Claude de tekst nodig: zet het transcript in <b>Mijn notities</b>, dan gaat het mee in de prompt.</p>' : ''}
+    ${video ? `<p class="small muted">Bij een video heeft Claude de tekst nodig: ${d.type === 'youtube' ? 'haal hierboven het transcript op' : TRANSCRIPT_TYPES.includes(d.type) ? 'plak hierboven het transcript' : 'zet het transcript in <b>Mijn notities</b>'}, dan gaat het mee in de prompt.</p>` : ''}
     <div class="make-row">
       <button class="btn primary" data-action="lesson-chat" data-v="claude">${icon('external')}Kopieer prompt en open Claude</button>
       <button class="btn" data-action="lesson-chat" data-v="chatgpt">${icon('external')}ChatGPT</button>
@@ -2519,6 +2697,10 @@ function settingsView() {
 
     <details class="panel"><summary><b>Verbinding</b></summary>${connectForm()}</details>
 
+    ${isDesktop() ? `<details class="panel"><summary><b>Sneltoetsen</b></summary>
+      <dl class="kv keys">${SHORTCUTS.map(([k, wat]) => `<dt><kbd>${esc(k)}</kbd></dt><dd>${esc(wat)}</dd>`).join('')}</dl>
+      <p class="small muted">Ze werken zolang je niet in een veld typt.</p></details>` : ''}
+
     <div class="panel">
       <h3>Status</h3>
       <dl class="kv">
@@ -2600,8 +2782,68 @@ function readBundleRows() {
   }));
 }
 
+// One action for everything you selected.
+function bulkSheetHtml() {
+  const count = S.selected.size;
+  return `<div class="overlay" data-action="close-sheet">
+    <div class="sheet" data-stop>
+      <h2>${count} ${count === 1 ? 'item' : 'items'} gekozen</h2>
+      <div class="field"><label for="bulk-map">Verplaats naar een map</label>
+        <select id="bulk-map"><option value="">Kies een map</option>${folderList().map((f) => `<option value="${esc(f.naam)}">${esc(f.naam)}</option>`).join('')}</select></div>
+      <div class="field"><label for="bulk-tag">Geef een tag</label>
+        <div class="row"><input id="bulk-tag" placeholder="bijvoorbeeld agents" autocomplete="off" autocapitalize="off" style="flex:1;min-width:0"><button class="btn" data-action="bulk" data-v="tag">Voeg toe</button></div></div>
+      <div class="make-row">
+        <button class="btn" data-action="bulk" data-v="ster">${icon('star')}Ster</button>
+        <button class="btn" data-action="bulk" data-v="leren">${icon('bulb')}Om van te leren</button>
+        <button class="btn" data-action="bulk" data-v="posten">${icon('feed')}Om te posten</button>
+        <button class="btn" data-action="bulk" data-v="archief">${icon('archive')}Archiveer</button>
+      </div>
+      <div class="row" style="margin-top:14px"><span style="flex:1"></span><button class="btn ghost" data-action="close-sheet">Sluit</button></div>
+    </div>
+  </div>`;
+}
+
+// Applies one change to every selected item, with one undo for all of them.
+async function bulkApply(kind, value) {
+  const v = S.vault;
+  const ids = [...S.selected].filter((id) => v.has(id) && !v.meta(id).invalid);
+  if (!ids.length) return;
+  const tag = kind === 'tag' ? String(value || '').replace(/^#/, '').toLowerCase().trim().replace(/\s+/g, '-') : '';
+  if (kind === 'tag' && !tag) return toast('Typ eerst een tag');
+  if (kind === 'map' && !value) return;
+  const before = ids.map((id) => {
+    const m = v.meta(id);
+    return { id, was: { map: m.map, ordening: m.ordening, status: m.status, ster: m.ster, doel: m.doel, tags: [...(m.tags || [])] } };
+  });
+  S.sheet = null;
+  let done = 0;
+  for (const { id, was } of before) {
+    const body = kind === 'map' ? { map: value }
+      : kind === 'tag' ? (was.tags.includes(tag) ? null : { tags: [...was.tags, tag] })
+        : kind === 'ster' ? (was.ster ? null : { ster: true })
+          : kind === 'archief' ? (was.status === 'archief' ? null : { status: 'archief' })
+            : { doel: kind };
+    if (body && (kind !== 'map' || was.map !== value) && await patchItem(id, body)) done++;
+  }
+  // Archived or set apart to learn from: they leave the feed, so the selection ends.
+  if (['archief', 'leren'].includes(kind)) S.selected.clear();
+  render();
+  const wat = { map: `verplaatst naar ${value}`, tag: `getagd met ${tag}`, ster: 'kregen een ster', archief: 'gearchiveerd', leren: 'staan bij Om van te leren', posten: 'staan bij Om te posten' }[kind];
+  if (!done) return toast('Dat was al zo voor deze items');
+  toast(`${done} ${done === 1 ? 'item' : 'items'} ${wat}`.replace(/^1 item kregen/, '1 item kreeg').replace(/^1 item staan/, '1 item staat'), { soort: 'ok', duur: 6000, actie: async () => {
+    for (const { id, was } of before) {
+      if (!v.has(id)) continue;
+      await v.update(id, kind === 'map' ? { map: was.map, ordening: was.ordening } : kind === 'tag' ? { tags: was.tags } : kind === 'ster' ? { ster: was.ster } : kind === 'archief' ? { status: was.status } : { doel: was.doel });
+    }
+    refreshItems();
+    render();
+    toast('Teruggezet');
+  } });
+}
+
 function sheetHtml() {
   if (S.sheet === 'bundels') return bundleSheetHtml();
+  if (S.sheet === 'bulk') return S.selected.size ? bulkSheetHtml() : '';
   if (S.sheet !== 'add') return '';
   return `<div class="overlay" data-action="close-sheet">
     <div class="sheet" data-stop>
@@ -2633,6 +2875,7 @@ function selectionBar() {
     ${facesHtml(picked)}
     <span class="select-count">${S.selected.size} gekozen</span>
     <button class="icon-btn select-clear" data-action="clear-picks" aria-label="Selectie wissen" title="Selectie wissen">${icon('x')}</button>
+    <button class="icon-btn select-more" data-action="bulk-open" aria-label="Verplaats, tag of archiveer de selectie" title="Verplaats, tag of archiveer de selectie">${icon('folder')}</button>
     <button class="btn primary" data-action="nav" data-href="#/studio">${icon('sparkle')}Maak prompt</button>
   </div>`;
 }
@@ -3347,6 +3590,11 @@ const actions = {
     S.selected.delete(el.dataset.id);
     render();
   },
+  'bulk-open': () => {
+    S.sheet = 'bulk';
+    render();
+  },
+  bulk: (el) => bulkApply(el.dataset.v, el.dataset.v === 'tag' ? $('#bulk-tag')?.value : ''),
   'clear-picks': () => {
     S.selected.clear();
     S.prompt = '';
@@ -3534,6 +3782,23 @@ const actions = {
     renderDetail();
   },
   'save-title': () => saveTitle(),
+  speak: () => toggleSpeech(),
+  'speak-stop': () => stopSpeech(),
+  'speak-tempo': () => {
+    S.tempo = ((S.tempo || 0) + 1) % TEMPO.length;
+    local.set('cm_tempo', S.tempo);
+    // The new tempo starts with the piece that is being read.
+    if (speech?.aan) {
+      speech.u = null;
+      speechSynthesis.cancel();
+      speakNext();
+    }
+    paintSpeech();
+  },
+  'transcript-fetch': () => fetchTranscript(),
+  'transcript-paste': () => pasteTranscript(),
+  'transcript-copy': () => copy(getSection(S.detail?.body || '', TRANSCRIPT), 'Transcript gekopieerd'),
+  'transcript-remove': () => S.detail && saveTranscript(S.detail.id, '', 'Transcript verwijderd'),
   'lesson-chat': async (el) => {
     const prompt = buildLessonPrompt({ item: detailSource(S.detail), profiel: S.vault.system['profiel.md'] });
     const links = chatLinks(prompt);
@@ -4154,6 +4419,7 @@ document.addEventListener('input', (ev) => {
 
 document.addEventListener('change', async (ev) => {
   const t = ev.target;
+  if (t.id === 'bulk-map') return void (t.value && bulkApply('map', t.value));
   if (t.id === 'map-select') {
     let map = t.value;
     if (map === '__new') {
@@ -4211,6 +4477,34 @@ document.addEventListener('change', async (ev) => {
 });
 
 // Keys: arrows in the quick sort, Cmd+Enter saves what you typed in the add sheet.
+// Keys for the Mac. They only work while you are not typing in a field.
+const SHORTCUTS = [['/', 'Zoeken'], ['N', 'Iets bewaren'], ['1 tot 5', 'Feed, Vandaag, Mappen, Studio, Content-archief'], ['V', 'Downloader'], ['S', 'Ster (in een item)'], ['E', 'Archiveer (in een item)'], ['L', 'Lees voor of pauze (in een item)'], ['Esc', 'Terug of sluiten']];
+function shortcut(ev) {
+  if (!S.ready || S.sharing) return false;
+  const k = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+  if (k === 'Escape') {
+    if (S.sheet) actions['close-sheet']();
+    else if (S.view === 'item') actions.back();
+    else return false;
+    return true;
+  }
+  if (S.sheet) return false;
+  const page = { 1: '#/', 2: '#/vandaag', 3: '#/mappen', 4: '#/studio', 5: '#/archief', v: '#/video' }[k];
+  if (page) return go(page), true;
+  if (k === 'n') return actions.add(), true;
+  if (k === '/') {
+    if (!['feed', 'map'].includes(S.view)) go('#/');
+    setTimeout(() => $('#q')?.focus(), 60);
+    return true;
+  }
+  if (S.view === 'item' && S.detail && !S.detail.invalid) {
+    if (k === 's') return patchItem(S.detail.id, { ster: !S.detail.ster }), true;
+    if (k === 'e') return actions.archive(), true;
+    if (k === 'l' && canSpeak()) return toggleSpeech(), true;
+  }
+  return false;
+}
+
 document.addEventListener('keydown', (ev) => {
   const typing = ev.target.closest?.('input, textarea, select, [contenteditable]');
   if (ev.target.id === 'title-input' && (ev.key === 'Enter' || ev.key === 'Escape')) {
@@ -4227,6 +4521,10 @@ document.addEventListener('keydown', (ev) => {
   if (ev.target.id === 'add-input' && ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) {
     ev.preventDefault();
     actions['save-add']();
+    return;
+  }
+  if (!typing && !ev.metaKey && !ev.ctrlKey && !ev.altKey && shortcut(ev)) {
+    ev.preventDefault();
     return;
   }
   if (S.view !== 'sorteren' || typing || ev.metaKey || ev.ctrlKey || ev.altKey) return;

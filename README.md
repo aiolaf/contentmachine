@@ -231,7 +231,40 @@ Bij "beweging verminderen" in je iPhone- of Mac-instellingen staan de animaties 
 
 ## Premium-functies, gratis
 
-Apps als Raindrop, Instapaper, Matter en Readwise vragen 3 tot 13 dollar per maand voor deze drie. Hier zitten ze er gratis in.
+Apps als Raindrop, Instapaper, Matter en Readwise vragen 3 tot 13 dollar per maand voor dit soort functies. Hier zitten ze er gratis in.
+
+### Transcript van een video
+
+Bij een YouTube-video staat in het item de knop **Haal transcript op**. De app haalt de ondertitels op via dezelfde openbare Piped- en Invidious-servers als de downloader en zet ze als leesbare tekst in de notitie, onder een eigen kop `## Transcript`. Automatische ondertitels zeggen elke regel twee keer; die dubbelingen gaan eruit, net als `[Music]` en tijdcodes.
+
+- Het transcript gaat mee in je prompts. **Leer ervan** krijgt het hele transcript (tot 40.000 tekens), een content-prompt een deel ervan. Is het langer, dan gaan het begin en het eind mee, want daar zitten de hook en de kern.
+- Je vindt de video terug op wat erin gezegd wordt, want zoeken doorzoekt de hele notitie.
+- Je leest het in het item, en het staat ook in Obsidian.
+- **Plak transcript** werkt bij elke video (ook TikTok en Instagram): kopieer een transcript, een `.srt` of een `.vtt` en de app maakt er gewone tekst van.
+- Geeft geen openbare server antwoord, dan staat er een regel voor **yt-dlp** op je Mac die de ondertitels als `.srt` in Downloads zet. Die plak je daarna.
+
+De openbare servers zijn niet altijd bereikbaar; dan lukt ophalen niet en gebruik je plakken.
+
+### Voorlezen
+
+Boven de tekst van elk item staat **Lees voor**. De stem van je eigen iPhone of Mac leest het item voor, in het Nederlands of Engels naar gelang de tekst. Je pauzeert, gaat verder en kiest het tempo (0,85x tot 1,5x). Er gaat niets naar een server. Ga je weg uit het item, dan stopt de stem.
+
+### Meer items tegelijk
+
+Kies items in de feed met het vakje. In de balk onderaan staat naast **Maak prompt** een map-knop: daarmee verplaats je de hele selectie naar een map, geef je ze een tag, een ster, zet je ze bij **Om van te leren** of **Om te posten**, of archiveer je ze. Na elke actie kun je alles in een keer ongedaan maken.
+
+### Sneltoetsen op de Mac
+
+| Toets | Wat |
+| --- | --- |
+| `/` | Zoeken |
+| `N` | Iets bewaren |
+| `1` tot `5` | Feed, Vandaag, Mappen, Studio, Content-archief |
+| `V` | Downloader |
+| `S`, `E`, `L` | In een item: ster, archiveer, lees voor |
+| `Esc` | Terug of sluiten |
+
+Ze werken zolang je niet in een veld typt. De lijst staat ook onder Instellingen.
 
 ### Zoeken in de volledige tekst
 
@@ -439,6 +472,7 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | `lib/content.js` | content-archief: onderwerpen, statistiek, eerder gemaakt |
 | `lib/video.js` | video- en fotobestanden vinden achter posts op X, TikTok, Instagram, Threads, LinkedIn en YouTube, en op gewone webpagina's |
 | `lib/zip.js` | meer bestanden als een zip, zonder compressie |
+| `lib/transcript.js` | ondertitels van een YouTube-video ophalen en elk soort ondertitelbestand naar leesbare tekst |
 | `lib/lessons.js` | lessen van items om van te leren |
 | `lib/prompts.js` | prompt-generator |
 | `lib/platforms.js` | tekst per kanaal: delen van een antwoord, tellers, open-links, de terugcode |

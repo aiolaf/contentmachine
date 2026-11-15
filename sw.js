@@ -1,13 +1,13 @@
 // App shell cache: opens instantly on the iPhone, refreshes in the background.
 // Only this app's own files are cached; GitHub and other APIs always go to the network.
 // Dagspel (dagspel/), the Teleprompter (teleprompter/) and Notulist (notulist/) live on the same site and load on their own.
-const CACHE = 'cm-v33';
+const CACHE = 'cm-v34';
 const SHELL = [
   './', 'index.html', 'app.js', 'ui.js', 'styles.css', 'fonts/outfit-latin-wght-normal.woff2', 'fonts/outfit-latin-ext-wght-normal.woff2', 'icon.svg', 'manifest.webmanifest', 'apple-touch-icon.png',
   'lib/frontmatter.js', 'lib/store.js', 'lib/vault.js', 'lib/capture.js', 'lib/classify.js',
   'lib/learn.js', 'lib/prompts.js', 'lib/pipeline.js', 'lib/seeds.js', 'lib/embeds.js', 'lib/shortcut.js', 'lib/bundles.js',
   'lib/search.js', 'lib/highlights.js', 'lib/review.js', 'lib/textcache.js', 'lib/content.js', 'lib/video.js', 'lib/lessons.js',
-  'lib/postdata.js', 'lib/clean.js', 'lib/similar.js', 'lib/words.js', 'lib/platforms.js', 'lib/stats.js', 'lib/richtext.js', 'lib/zip.js',
+  'lib/postdata.js', 'lib/clean.js', 'lib/similar.js', 'lib/words.js', 'lib/platforms.js', 'lib/stats.js', 'lib/richtext.js', 'lib/zip.js', 'lib/transcript.js',
 ];
 
 self.addEventListener('install', (e) => {
