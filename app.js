@@ -27,6 +27,8 @@ import {
 } from './lib/content.js';
 import { KANALEN, KANAAL_VAN, newCode, findCode, stripCode, outputFor, visiblePart, withHook, composeLink, speakSeconds, parseResult } from './lib/platforms.js';
 import { fetchStats, statsSource } from './lib/stats.js';
+import { toHtml, splitNewsletter, withoutSubjects, joinNewsletter, forSubstack, applyFormat } from './lib/richtext.js';
+import { words, readMinutes } from './lib/platforms.js';
 import {
   toast as showToast, confirmSlide, rollHtml, animateRolls, burst, pop, switchHtml, flipSwitch,
   ringHtml, setRing, checkSvg, setGenerate, flyOut, setupDeck, setupTilt, setupSwipeAway,
@@ -78,7 +80,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '15 nov 2026, 23:30';
+const VERSIE = '31 (15 nov 2026)';
 // The Teleprompter lives in teleprompter/ on the same site; it shows a link back here.
 const TELEPROMPTER_URL = 'teleprompter/?van=contentmachine';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
@@ -174,6 +176,8 @@ const S = {
   archiefStatus: null,
   conceptEdit: null,
   plakVeld: false,
+  // The newsletter editor: { file, titel, ondertitel, tekst, tab, staat }.
+  editor: null,
 };
 const isLeren = (i) => i.doel === 'leren';
 
@@ -809,6 +813,12 @@ async function onRoute() {
     S.conceptEdit = null;
     S.plakVeld = false;
   }
+  // Leaving the editor: what was typed is saved first.
+  if (prev === 'editor' && S.view !== 'editor' && S.editor) {
+    clearTimeout(editorTimer);
+    if (S.editor.staat !== 'bewaard') saveEditor();
+    S.editor = null;
+  }
   if (!['sorteren', 'item'].includes(S.view)) S.deck = null;
   // Done with a production: a fresh start for the next selection.
   if (prev === 'studio' && !['studio', 'concept'].includes(S.view) && S.vault && S.productie?.key === productionKey()) {
@@ -829,6 +839,7 @@ async function onRoute() {
   if (!S.ready) return;
   if (S.view === 'item') loadDetail(S.param);
   if (S.view === 'concept') loadConcept(S.param);
+  if (S.view === 'editor') loadEditor(S.param);
   if (S.view === 'vandaag') loadReview();
   if (['archief', 'vandaag'].includes(S.view)) refreshStats();
 }
@@ -1914,8 +1925,24 @@ function publishHtml(p, c) {
     </div>`;
   }
   const blocks = out.blokken.map((b, n) => blockHtml(p, b, n, out)).join('');
-  return `${p?.soort === 'nieuwsbrief' ? `<div class="md">${md(parseResult(conceptText(c)).hoofd || conceptText(c))}</div>` : ''}
-    ${blocks || `<div class="md">${md(conceptText(c))}</div>`}
+  if (p?.soort === 'nieuwsbrief') {
+    const body = withoutSubjects(splitNewsletter(conceptText(c)).tekst);
+    return `<div class="panel ed-entry">
+        <h3>${icon('pen')}Nieuwsbrief</h3>
+        <p class="small muted">${words(body).toLocaleString('nl-NL')} woorden, ${readMinutes(body)} min lezen. In de editor werk je de tekst bij en kopieer je hem met opmaak naar Substack.</p>
+        <div class="make-row">
+          <button class="btn primary" data-action="nav" data-href="#/editor/${encodeURIComponent(c.file)}">${icon('pen')}Open in de editor</button>
+          <button class="btn" data-action="copy-substack">${icon('copy')}Kopieer tekst voor Substack</button>
+        </div>
+      </div>
+      ${blocks}
+      <div class="md ed-read">${md(body)}</div>
+      <div class="make-row" style="margin:4px 0 14px">
+        <button class="btn ghost" data-action="copy-concept">${icon('copy')}Kopieer als Markdown</button>
+        <button class="btn ghost" data-action="paste-result">${icon('copy')}Plak een nieuwe versie</button>
+      </div>`;
+  }
+  return `${blocks || `<div class="md">${md(conceptText(c))}</div>`}
     <div class="make-row" style="margin:4px 0 14px">
       <button class="btn" data-action="edit-concept">${icon('pen')}Bewerk tekst</button>
       <button class="btn ghost" data-action="copy-concept">${icon('copy')}Kopieer alles</button>
@@ -1962,6 +1989,128 @@ function repurposeHtml(p) {
     <p class="small muted">Dezelfde kern voor een ander kanaal. De prompt krijgt deze tekst mee als basis.</p>
     <div class="chips wrap">${others.map((x) => `<button class="chip ${made.has(x.id) ? 'done' : ''}" data-action="repurpose" data-v="${x.id}">${made.has(x.id) ? icon('check') : ''}${esc(x.label)}</button>`).join('')}</div>
   </div>`;
+}
+
+// ---------- the newsletter editor ----------
+// Write in Markdown, see it as it will look, and copy it as rich text that
+// pastes into Substack with its headings, links and lists.
+let editorTimer;
+
+async function loadEditor(file) {
+  if (S.editor?.file === file) return;
+  S.editor = null;
+  render();
+  try {
+    const { body } = await S.vault.readConcept(file);
+    const p = productionByFile(file);
+    const text = removeSection(removeSection(body, 'Bronnen in de vault'), 'Onderwerpen').trim();
+    const n = splitNewsletter(/^> \[!todo\]/m.test(text) ? '' : text);
+    S.editor = { file, titel: n.titel || p?.titel || '', ondertitel: p?.ondertitel || '', tekst: n.tekst, tab: 'schrijven', staat: 'bewaard' };
+    render();
+  } catch (e) {
+    toast(e.message);
+    go('#/studio');
+  }
+}
+
+function saveEditor() {
+  const e = S.editor;
+  const p = e && productionByFile(e.file);
+  if (!p) return;
+  const done = fillProduction(p, joinNewsletter({ titel: e.titel, tekst: e.tekst }));
+  if ((done.ondertitel || '') !== e.ondertitel.trim()) updateProduction(e.file, { ondertitel: e.ondertitel.trim() || undefined });
+  e.staat = 'bewaard';
+  const st = $('#ed-state');
+  if (st) st.textContent = 'bewaard';
+}
+
+function editorChanged() {
+  const e = S.editor;
+  e.staat = 'typen...';
+  const st = $('#ed-state');
+  if (st) st.textContent = 'typen...';
+  paintEditor();
+  clearTimeout(editorTimer);
+  editorTimer = setTimeout(saveEditor, 1500);
+}
+
+const editorBody = () => withoutSubjects(S.editor.tekst);
+const previewHtml = () => toHtml(editorBody()).replace(/<img /g, '<img referrerpolicy="no-referrer" loading="lazy" ').replace(/<a /g, '<a target="_blank" rel="noopener" ');
+
+// Only the preview and the counts change while typing, so the cursor stays put.
+function paintEditor() {
+  const e = S.editor;
+  const pre = $('#ed-preview');
+  if (pre) pre.innerHTML = `<h1>${esc(e.titel || 'Zonder titel')}</h1>${e.ondertitel.trim() ? `<p class="sub">${esc(e.ondertitel)}</p>` : ''}${previewHtml() || '<p class="muted">Nog geen tekst.</p>'}`;
+  const count = $('#ed-count');
+  if (count) count.textContent = `${words(editorBody()).toLocaleString('nl-NL')} woorden · ${readMinutes(editorBody())} min lezen`;
+}
+
+function editorView() {
+  const e = S.editor;
+  if (!e) return '<div class="detail"><div class="empty"><div class="spinner" style="margin:0 auto"></div></div></div>';
+  const p = productionByFile(e.file);
+  const subjects = splitNewsletter(joinNewsletter(e)).onderwerpregels;
+  const tool = (kind, label, title) => `<button class="ed-tool" data-action="ed-format" data-v="${kind}" title="${title}" aria-label="${title}">${label}</button>`;
+  return `<div class="editor">
+    <div class="topbar">
+      <button class="icon-btn" data-action="nav" data-href="#/concept/${encodeURIComponent(e.file)}" aria-label="Terug naar het stuk">${icon('back')}</button>
+      <div style="flex:1;min-width:0"><span class="dateline">${esc(p?.label || 'Nieuwsbrief')} · <span id="ed-state">${esc(e.staat)}</span></span><h1>Editor</h1></div>
+    </div>
+    ${subjects.length ? `<div class="panel ed-subjects"><b class="small">Kies een onderwerpregel als titel</b><div class="chips wrap">${subjects.map((x, n) => `<button class="chip" data-action="ed-subject" data-v="${n}">${esc(x)}</button>`).join('')}</div></div>` : ''}
+    <input id="ed-title" class="ed-title" value="${esc(e.titel)}" placeholder="Titel" aria-label="Titel" autocomplete="off">
+    <input id="ed-sub" class="ed-sub" value="${esc(e.ondertitel)}" placeholder="Ondertitel (optioneel)" aria-label="Ondertitel" autocomplete="off">
+    <div class="ed-tabs mobile-only" role="tablist">
+      <button role="tab" aria-selected="${e.tab === 'schrijven'}" class="${e.tab === 'schrijven' ? 'on' : ''}" data-action="ed-tab" data-v="schrijven">Schrijven</button>
+      <button role="tab" aria-selected="${e.tab === 'voorbeeld'}" class="${e.tab === 'voorbeeld' ? 'on' : ''}" data-action="ed-tab" data-v="voorbeeld">Voorbeeld</button>
+    </div>
+    <div class="ed-grid tab-${e.tab}">
+      <div class="ed-write">
+        <div class="ed-toolbar" role="toolbar" aria-label="Opmaak">
+          ${tool('h2', 'H2', 'Kop')}${tool('h3', 'H3', 'Tussenkop')}${tool('vet', '<b>B</b>', 'Vet')}${tool('cursief', '<i>I</i>', 'Cursief')}${tool('link', icon('external'), 'Link')}${tool('citaat', '&ldquo;', 'Citaat')}${tool('lijst', '&bull;', 'Lijst')}${tool('nummers', '1.', 'Genummerde lijst')}${tool('lijn', '&mdash;', 'Scheidslijn')}
+        </div>
+        <textarea id="ed-text" spellcheck="true" placeholder="Schrijf of plak je nieuwsbrief. Kopjes met ##, vet met **, een lijst met - ." aria-label="Tekst">${esc(e.tekst)}</textarea>
+      </div>
+      <div class="ed-preview-wrap"><div class="ed-preview" id="ed-preview"></div></div>
+    </div>
+    <div class="ed-bar">
+      <span class="small muted" id="ed-count"></span>
+      <div class="make-row">
+        <button class="btn" data-action="ed-copy-title">${icon('copy')}Titel</button>
+        ${e.ondertitel.trim() ? `<button class="btn" data-action="ed-copy-sub">${icon('copy')}Ondertitel</button>` : ''}
+        <button class="btn primary" data-action="ed-copy-body">${icon('copy')}Kopieer tekst voor Substack</button>
+        <button class="btn" data-action="ed-open-substack">${icon('external')}Open Substack</button>
+      </div>
+      <p class="small muted">Plak de tekst in het tekstvak van een nieuwe post in Substack: koppen, vet, links, lijsten en citaten komen mee. De titel en ondertitel hebben in Substack hun eigen veld. De lijst met onderwerpregels gaat niet mee.</p>
+    </div>
+  </div>`;
+}
+
+// Rich text on the clipboard: HTML for editors that take it, plain text for
+// the rest.
+async function copyRich(html, text, label) {
+  try {
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([text], { type: 'text/plain' }),
+    })]);
+  } catch {
+    // Browsers without that: copy the text as it is shown, from a box out of sight.
+    const box = Object.assign(document.createElement('div'), { contentEditable: 'true', innerHTML: html });
+    box.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;white-space:pre-wrap';
+    document.body.append(box);
+    const range = document.createRange();
+    range.selectNodeContents(box);
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const ok = document.execCommand('copy');
+    sel.removeAllRanges();
+    box.remove();
+    if (!ok) return copy(text, `${label} (zonder opmaak)`);
+  }
+  toast(label, { soort: 'ok' });
+  return true;
 }
 
 // A production: what to paste where, whether it is posted, what it did, and
@@ -2196,7 +2345,7 @@ function sidebarHtml() {
     <button class="btn primary block" data-action="add" style="margin-bottom:10px">${icon('plus')}Bewaar link of idee</button>
     ${nav('#/', 'feed', 'Feed', onFeed, S.items.filter(isActive).length)}
     ${nav('#/vandaag', 'sun', 'Vandaag', S.view === 'vandaag' || (S.view === 'item' && S.itemFrom === 'vandaag'), reviewWaiting() ? 'nieuw' : '')}
-    ${nav('#/studio', 'pen', 'Studio', S.view === 'studio' || S.view === 'concept' || (S.view === 'item' && S.itemFrom === 'concept'), S.selected.size || '')}
+    ${nav('#/studio', 'pen', 'Studio', ['studio', 'concept', 'editor'].includes(S.view) || (S.view === 'item' && S.itemFrom === 'concept'), S.selected.size || '')}
     ${nav('#/video', 'download', 'Video en foto\'s', S.view === 'video')}
     ${nav(TELEPROMPTER_URL, 'video', 'Teleprompter', false)}
     ${nav('#/instellingen', 'settings', 'Instellingen', S.view === 'instellingen')}
@@ -2217,7 +2366,7 @@ function tabbarHtml() {
     ${tab('#/', 'feed', 'Feed', S.view === 'feed' || S.view === 'sorteren' || (S.view === 'item' && !S.map && !fromToday && !fromStudio && !fromArchive))}
     ${tab('#/vandaag', 'sun', 'Vandaag', S.view === 'vandaag' || fromToday, reviewWaiting())}
     ${tab('#/mappen', 'grid', 'Mappen', S.view === 'mappen' || S.view === 'map' || S.view === 'archief' || fromArchive)}
-    ${tab('#/studio', 'pen', 'Studio', S.view === 'studio' || S.view === 'concept' || fromStudio, S.selected.size)}
+    ${tab('#/studio', 'pen', 'Studio', ['studio', 'concept', 'editor'].includes(S.view) || fromStudio, S.selected.size)}
     ${tab('#/instellingen', 'settings', 'Instellingen', S.view === 'instellingen')}
   </nav>`;
 }
@@ -2274,7 +2423,7 @@ function shareHtml() {
 }
 
 function selectionBar() {
-  if (!S.selected.size || S.view === 'studio' || S.view === 'concept') return '';
+  if (!S.selected.size || ['studio', 'concept', 'editor'].includes(S.view)) return '';
   // A floating pill, not a sheet: the feed stays sharp, so you can keep selecting.
   const picked = [...S.selected].map((id) => S.items.find((i) => i.id === id)).filter(Boolean);
   return `<div class="select-bar" role="region" aria-label="Selectie">
@@ -2309,6 +2458,7 @@ function render() {
   let main;
   if (S.view === 'studio') main = studioView();
   else if (S.view === 'concept') main = conceptView();
+  else if (S.view === 'editor') main = editorView();
   else if (S.view === 'instellingen') main = settingsView();
   else if (S.view === 'mappen') main = desktop ? feedView() : foldersView();
   else if (S.view === 'vandaag') main = vandaagView();
@@ -2357,6 +2507,7 @@ function render() {
 // Rolling numbers roll from their last value; a tapped button springs.
 function afterRender() {
   animateRolls();
+  if (S.view === 'editor' && S.editor) paintEditor();
   if (S.pop) {
     pop(document.querySelector(`[data-pop="${S.pop}"]`));
     S.pop = null;
@@ -2569,6 +2720,7 @@ async function recordProduction() {
 // (prompt, klaar, gepost) and what it did.
 function conceptMeta(p) {
   const m = { titel: p.titel, soort: p.label, datum: p.datum, status: statusOf(p), bronnen: p.bronnen, onderwerpen: p.onderwerpen, instructie: p.instructie };
+  if (p.ondertitel) m.ondertitel = p.ondertitel;
   if (p.gepost) m.gepost = String(p.gepost).slice(0, 10);
   if (p.link) m.link = p.link;
   for (const k of Object.keys(CIJFER_LABEL)) if (p.cijfers?.[k] !== undefined) m[k] = p.cijfers[k];
@@ -2770,7 +2922,7 @@ function watchReturn() {
 
 function returnBar() {
   const p = S.terug && productionByFile(S.terug);
-  if (!p || p.klaar || S.selected.size || S.sheet || (S.view === 'concept' && S.concept?.file === p.file) || S.view === 'studio') return '';
+  if (!p || p.klaar || S.selected.size || S.sheet || (S.view === 'concept' && S.concept?.file === p.file) || ['studio', 'editor'].includes(S.view)) return '';
   return `<div class="return-bar" role="region" aria-label="Resultaat plakken">
     <span class="return-text"><b>Antwoord gekopieerd?</b><small>${esc(p.label)}: ${esc(p.titel)}</small></span>
     <button class="btn primary" data-action="paste-result">${icon('copy')}Plak</button>
@@ -3183,6 +3335,47 @@ const actions = {
     const text = ($('#plak-veld')?.value || '').trim();
     if (!text) return toast('Plak eerst het resultaat');
     return takeResult(text);
+  },
+  'copy-substack': () => {
+    const out = forSubstack(splitNewsletter(conceptText(S.concept)).tekst);
+    return copyRich(out.html, out.plain, 'Tekst gekopieerd met opmaak. Plak hem in Substack.');
+  },
+  'ed-tab': (el) => {
+    S.editor.tab = el.dataset.v;
+    render();
+  },
+  'ed-format': (el) => {
+    const t = $('#ed-text');
+    const r = applyFormat(t.value, t.selectionStart, t.selectionEnd, el.dataset.v);
+    t.value = r.tekst;
+    t.focus();
+    t.setSelectionRange(r.start, r.end);
+    S.editor.tekst = r.tekst;
+    editorChanged();
+  },
+  'ed-subject': (el) => {
+    const e = S.editor;
+    const before = { titel: e.titel, tekst: e.tekst };
+    const pick = splitNewsletter(joinNewsletter(e)).onderwerpregels[Number(el.dataset.v)];
+    if (!pick) return;
+    // The chosen line becomes the title; the list of options has done its work.
+    e.titel = pick;
+    e.tekst = withoutSubjects(e.tekst);
+    saveEditor();
+    render();
+    toast('Titel gekozen', { soort: 'ok', actie: () => { Object.assign(S.editor, before); saveEditor(); render(); } });
+  },
+  'ed-copy-title': () => copy(S.editor.titel, 'Titel gekopieerd', { soort: 'ok' }),
+  'ed-copy-sub': () => copy(S.editor.ondertitel.trim(), 'Ondertitel gekopieerd', { soort: 'ok' }),
+  'ed-copy-body': () => {
+    const out = forSubstack(S.editor.tekst);
+    if (!out.plain) return toast('Er is nog geen tekst');
+    return copyRich(out.html, out.plain, 'Tekst gekopieerd met opmaak. Plak hem in Substack.');
+  },
+  'ed-open-substack': () => {
+    const link = composeLink('substack', '', { substack: S.vault.kanalen.substack?.url });
+    window.open(link, '_blank');
+    if (!S.vault.kanalen.substack?.url) toast('Tip: zet het adres van je Substack onder Instellingen, Mijn kanalen. Dan opent deze knop meteen een nieuwe post.');
   },
   'copy-block': (el) => {
     const b = outputOf(productionByFile(S.concept.file), S.concept).blokken[Number(el.dataset.v)];
@@ -3682,6 +3875,12 @@ document.addEventListener('input', (ev) => {
     S.instructie = t.value;
   } else if (t.id === 'resultaat') {
     S.resultaat = t.value;
+  } else if (t.id === 'ed-text' || t.id === 'ed-title' || t.id === 'ed-sub') {
+    const e = S.editor;
+    if (t.id === 'ed-text') e.tekst = t.value;
+    else if (t.id === 'ed-title') e.titel = t.value;
+    else e.ondertitel = t.value;
+    editorChanged();
   } else if (t.id === 'lessen') {
     const id = S.detail.id;
     S.detail.lessenTekst = t.value;

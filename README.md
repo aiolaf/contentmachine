@@ -294,7 +294,20 @@ Een stuk content gaat door drie stappen: **wacht op resultaat**, **klaar om te p
 | TikTok, YouTube | het script met spreektijd en **Zet in Teleprompter**, de caption of beschrijving, titels |
 | Carrousel | elke slide apart, plus de begeleidende post |
 
-**Bewerk tekst** past de tekst aan, **Plak een nieuwe versie** vervangt hem. Onder **Maak er ook van** kies je een ander kanaal: de nieuwe prompt krijgt deze tekst mee als basis, zodat de kern gelijk blijft.
+### De nieuwsbrief-editor voor Substack
+
+Een nieuwsbrief opent in een eigen editor (**Open in de editor** op het stuk):
+
+- Links schrijf je in Markdown, rechts zie je de tekst zoals hij in Substack komt. Op de iPhone wissel je tussen **Schrijven** en **Voorbeeld**.
+- De werkbalk zet een kop, tussenkop, vet, cursief, een link, citaat, lijst, genummerde lijst of scheidslijn.
+- De onderwerpregels die de prompt opleverde, staan bovenaan als keuzes. Tik er een aan en hij wordt de titel. Titel en ondertitel hebben hun eigen veld en kopieerknop, net als in Substack.
+- **Kopieer tekst voor Substack** zet de tekst met opmaak op je klembord. Plak hem in het tekstvak van een nieuwe post: koppen, vet, cursief, links, lijsten, citaten en scheidslijnen komen mee. De titel, de lijst met onderwerpregels en de terugcode gaan niet mee.
+- **Open Substack** opent een nieuwe post als het adres van je Substack onder **Mijn kanalen** staat.
+- Wat je typt, wordt vanzelf bewaard in de notitie in `Concepten/`. Je ziet het aantal woorden en de leestijd.
+
+Op het stuk zelf staat dezelfde kopieerknop, voor als je niets wilt aanpassen.
+
+**Bewerk tekst** past de tekst van de andere vormen aan, **Plak een nieuwe versie** vervangt hem. Onder **Maak er ook van** kies je een ander kanaal: de nieuwe prompt krijgt deze tekst mee als basis, zodat de kern gelijk blijft.
 
 **Gepost en cijfers.** Markeer een stuk als gepost, met de link naar je post. Voor X en TikTok haalt de app de cijfers zelf op (fxtwitter en tikwm) en ververst ze af en toe. LinkedIn, Instagram, Threads, YouTube en Substack laten cijfers alleen aan jou zien: die neem je over. Na twee dagen, en nog eens na een week, vraagt **Vandaag** om de cijfers.
 
@@ -411,6 +424,7 @@ python3 -m http.server 8080 # open http://localhost:8080 en kies "Alleen dit app
 | `lib/prompts.js` | prompt-generator |
 | `lib/platforms.js` | tekst per kanaal: delen van een antwoord, tellers, open-links, de terugcode |
 | `lib/stats.js` | cijfers van een post op X of TikTok ophalen |
+| `lib/richtext.js` | Markdown naar opgemaakte tekst voor Substack, en de werkbalk van de editor |
 | `lib/haiku.js` | optionele Claude Haiku-stap |
 | `lib/frontmatter.js` | YAML-eigenschappen lezen en schrijven |
 
