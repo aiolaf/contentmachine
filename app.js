@@ -28,7 +28,7 @@ import {
   statusOf, STATUS_LABEL, kanaalOf, cleanCijfers, cijferLine, CIJFER_LABEL, weekRitme, teMeten, resultaten, findProduction,
   ownChannel, matchProduction, SOORT_VAN_KANAAL,
 } from './lib/content.js';
-import { KANALEN, KANAAL_VAN, newCode, findCode, stripCode, outputFor, visiblePart, withHook, composeLink, speakSeconds, parseResult } from './lib/platforms.js';
+import { KANALEN, KANAAL_VAN, kanaalVanLink, newCode, findCode, stripCode, outputFor, visiblePart, withHook, composeLink, speakSeconds, parseResult } from './lib/platforms.js';
 import { fetchStats, statsSource } from './lib/stats.js';
 import { toHtml, splitNewsletter, withoutSubjects, joinNewsletter, forSubstack, applyFormat } from './lib/richtext.js';
 import { words, readMinutes } from './lib/platforms.js';
@@ -83,7 +83,7 @@ const FILTERS = [['actief', 'Actueel'], ['nieuw', 'Ongelezen'], ['ster', 'Ster']
 const isActive = (i) => i.status !== 'archief' && i.status !== 'gebruikt';
 const SORTS = { top: 'Top', nieuw: 'Nieuwst', trending: 'Trending' };
 const TYPE_LABEL = { artikel: 'Artikel', tweet: 'Post op X', instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', tiktok: 'TikTok', threads: 'Threads', notitie: 'Notitie', pdf: 'PDF' };
-const VERSIE = '35 (15 nov 2026)';
+const VERSIE = '36 (16 nov 2026)';
 // The Teleprompter lives in teleprompter/ on the same site; it shows a link back here.
 const TELEPROMPTER_URL = 'teleprompter/?van=contentmachine';
 const APP_URL = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
@@ -1171,6 +1171,7 @@ function detailHtml() {
         <button class="btn ghost" data-action="select" data-id="${esc(d.id)}">${S.selected.has(d.id) ? 'In selectie' : 'Voeg toe aan selectie'}</button>
       </div>
     </div>`}
+    ${postedByHandHtml(d)}
     <div class="field"><label for="map-select">Map</label><select id="map-select">${folderOptions(d.map)}</select>
       ${d.invalid || d.ordening === BY_HAND ? '' : (() => {
         const tips = folderSuggestions(d);
@@ -1481,6 +1482,88 @@ function usedInHtml(d) {
     ${prods.map(productionRow).join('')}
     ${d.status === 'gebruikt' ? `<button class="btn ghost" data-action="unuse" style="margin-top:6px">${icon('feed')}Zet terug in de feed</button>` : ''}
   </div>`;
+}
+
+// Posted by hand, outside the app: the item still counts. Its channel comes
+// from the link when you paste one.
+function postedByHandHtml(d) {
+  if (d.invalid || isLeren(d)) return '';
+  const k = S.handPost?.id === d.id ? S.handPost.kanaal : doelOf(d) === 'maken' ? 'tiktok' : 'linkedin';
+  const today = localDay();
+  const done = productionsOf(d.id).filter((p) => p.gepost);
+  return `<details class="panel hand-post" ${S.handPost?.id === d.id ? 'open' : ''}>
+    <summary><b>${icon('check')}${done.length ? 'Ook ergens anders gepost?' : 'Zelf gepost?'}</b><small>${done.length ? `Al gepost op ${esc([...new Set(done.map((p) => KANALEN[kanaalOf(p)]?.naam).filter(Boolean))].join(' en ') || 'een kanaal')}` : 'Zet het op gepost, ook als je het buiten de app schreef'}</small></summary>
+    <div class="field"><label>Kanaal</label><div class="kanaal-keuze" role="radiogroup" aria-label="Kanaal">${Object.entries(KANALEN).map(([key, x]) => `<button role="radio" aria-checked="${key === k}" class="chip ${key === k ? 'on' : ''}" data-action="hand-kanaal" data-v="${key}">${esc(x.naam)}</button>`).join('')}</div></div>
+    <div class="field"><label for="hand-link">Link naar je post (optioneel)</label>
+      <div class="video-input"><input id="hand-link" type="url" inputmode="url" placeholder="https://..." autocomplete="off" autocapitalize="off" value="${esc(S.handPost?.id === d.id ? S.handPost.link || '' : '')}"><button class="btn" data-action="hand-link-paste">${icon('copy')}Plak</button></div></div>
+    <div class="field"><label for="hand-date">Datum</label><input id="hand-date" type="date" value="${today}" max="${today}"></div>
+    <button class="btn primary block" data-action="hand-posted">${icon('check')}Zet op gepost</button>
+    <p class="small muted" style="margin-top:8px">Het komt in je Content-archief als gepost en telt mee in je weekritme. Met een link naar een post op X of TikTok haalt de app de cijfers zelf op.</p>
+  </details>`;
+}
+
+// Marks items as posted on a channel: an open piece from them on that
+// channel gets the date and link, otherwise a new piece in the archive holds
+// them. Returns { p, nieuw, voor } for the undo.
+async function markPostedByHand(ids, { kanaal, link = '', gepost }) {
+  const v = S.vault;
+  ids = ids.filter((id) => v.has(id));
+  if (!ids.length || !KANALEN[kanaal]) return null;
+  if (link) {
+    const known = v.content.find((p) => p.link && linkKey(p.link) === linkKey(link));
+    if (known) {
+      toast(`Deze post staat al in je Content-archief: ${known.titel}`);
+      return null;
+    }
+  }
+  const open = v.content.find((p) => !p.gepost && kanaalOf(p) === kanaal && ids.every((id) => p.bronnen.includes(id)));
+  if (open) {
+    const voor = { gepost: open.gepost, link: open.link, klaar: open.klaar };
+    const p = await updateProduction(open.file, { gepost, link: link || undefined, klaar: true });
+    return { p, nieuw: false, voor };
+  }
+  const metas = ids.map((id) => v.meta(id));
+  const { onderwerpen, mappen } = topicsOf(metas, bundleModel());
+  const soort = SOORT_VAN_KANAAL[kanaal];
+  const label = PROMPT_SOORTEN[soort]?.label || KANALEN[kanaal].naam;
+  const titel = metas.length === 1 ? metas[0].titel : productionTitle(metas, onderwerpen);
+  const base = { datum: gepost, soort, kanaal, label, titel, bronnen: ids, onderwerpen, mappen, klaar: true, gepost, link: link || undefined, handmatig: true, vorige: Object.fromEntries(metas.map((m) => [m.id, m.status])) };
+  const tekst = `# ${titel}\n\nZelf geschreven en gepost op ${KANALEN[kanaal].naam}${link ? `: ${link}` : ''}. Plak hier de tekst van je post als je die wilt bewaren.`;
+  const file = v.writeConcept(conceptMeta(base), conceptBody({ titel, label, links: metas.map(noteLink), onderwerpen, resultaat: tekst, datum: gepost }));
+  const p = { ...base, file };
+  v.saveContent([p, ...v.content]);
+  for (const m of metas) {
+    try {
+      const updated = await v.update(m.id, { status: 'gebruikt', gebruikt_in: [...(m.gebruikt_in || []), conceptLink(file)] });
+      v.learner.signal(updated, 'gebruikt');
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+  refreshItems();
+  return { p, nieuw: true };
+}
+
+async function postByHand(ids, { kanaal, link, day }) {
+  const raw = String(link || '').trim();
+  const clean = raw ? safeUrl(raw) : '';
+  if (raw && !clean) return toast('Dat is geen link. Laat het veld leeg of plak het adres van je post.', { soort: 'fout' });
+  // Noon, so the day is the same in every time zone you open the app in.
+  const gepost = new Date(`${day || localDay()}T12:00:00`).toISOString();
+  const r = await markPostedByHand(ids, { kanaal, link: clean, gepost });
+  if (!r) return null;
+  S.handPost = null;
+  render();
+  if (S.view === 'item') renderDetail();
+  toast(`Gepost op ${KANALEN[kanaal].naam}: staat in je Content-archief`, { soort: 'ok', duur: 7000, actie: async () => {
+    if (r.nieuw) await undoProduction(r.p);
+    else await updateProduction(r.p.file, r.voor);
+    render();
+    if (S.view === 'item') renderDetail();
+    toast('Teruggezet');
+  } });
+  if (clean && statsSource(clean)) fetchCijfers(r.p.file, { stil: true });
+  return r.p;
 }
 
 // The content archive: what you made, with its sources, newest first.
@@ -2823,6 +2906,8 @@ function bulkSheetHtml() {
         <select id="bulk-map"><option value="">Kies een map</option>${folderList().map((f) => `<option value="${esc(f.naam)}">${esc(f.naam)}</option>`).join('')}</select></div>
       <div class="field"><label for="bulk-tag">Geef een tag</label>
         <div class="row"><input id="bulk-tag" placeholder="bijvoorbeeld agents" autocomplete="off" autocapitalize="off" style="flex:1;min-width:0"><button class="btn" data-action="bulk" data-v="tag">Voeg toe</button></div></div>
+      <div class="field"><label for="bulk-kanaal">Zelf gepost, als één post</label>
+        <div class="row"><select id="bulk-kanaal" style="flex:1;min-width:0">${Object.entries(KANALEN).map(([k, x]) => `<option value="${k}">${esc(x.naam)}</option>`).join('')}</select><button class="btn" data-action="bulk-gepost">${icon('check')}Gepost</button></div></div>
       <div class="make-row">
         <button class="btn" data-action="bulk" data-v="ster">${icon('star')}Ster</button>
         <button class="btn" data-action="bulk" data-v="maken">${icon('video')}Om na te maken</button>
@@ -3627,6 +3712,16 @@ const actions = {
     S.sheet = 'bulk';
     render();
   },
+  'bulk-gepost': async () => {
+    const ids = [...S.selected].filter((id) => S.vault.has(id));
+    const kanaal = $('#bulk-kanaal')?.value || 'linkedin';
+    S.sheet = null;
+    const p = await postByHand(ids, { kanaal, day: localDay() });
+    if (p) {
+      S.selected.clear();
+      render();
+    }
+  },
   bulk: (el) => bulkApply(el.dataset.v, el.dataset.v === 'tag' ? $('#bulk-tag')?.value : ''),
   'clear-picks': () => {
     S.selected.clear();
@@ -3989,6 +4084,25 @@ const actions = {
     } catch {
       toast('Plakken lukte niet, houd het veld ingedrukt');
     }
+  },
+  'hand-kanaal': (el) => {
+    S.handPost = { id: S.detail.id, kanaal: el.dataset.v, link: $('#hand-link')?.value || '' };
+    renderDetail();
+  },
+  'hand-link-paste': async () => {
+    try {
+      const text = (await navigator.clipboard.readText()).trim();
+      const kanaal = kanaalVanLink(text);
+      S.handPost = { id: S.detail.id, kanaal: kanaal || S.handPost?.kanaal || (doelOf(S.detail) === 'maken' ? 'tiktok' : 'linkedin'), link: text };
+      renderDetail();
+    } catch {
+      toast('Plakken lukte niet, houd het veld ingedrukt');
+    }
+  },
+  'hand-posted': () => {
+    const d = S.detail;
+    const kanaal = $('.kanaal-keuze .on')?.dataset.v || 'linkedin';
+    return postByHand([d.id], { kanaal, link: $('#hand-link')?.value, day: $('#hand-date')?.value });
   },
   'mark-posted': async () => {
     const file = S.concept.file;
@@ -4429,6 +4543,12 @@ document.addEventListener('click', (ev) => {
 let notesTimer;
 let lessenTimer;
 document.addEventListener('input', (ev) => {
+  // A link to your post tells on which channel it is.
+  if (ev.target.id === 'hand-link') {
+    const k = kanaalVanLink(ev.target.value.trim());
+    if (k) document.querySelectorAll('.kanaal-keuze .chip').forEach((b) => { b.classList.toggle('on', b.dataset.v === k); b.setAttribute('aria-checked', String(b.dataset.v === k)); });
+    return;
+  }
   const t = ev.target;
   if (t.id === 'add-input') {
     // Grows with what you paste, like the prompt box on nina-ai.nl/ui.

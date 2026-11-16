@@ -247,3 +247,15 @@ test('videoscript: your own version of a video you saved as an example', async (
     assert.deepEqual(l.state.makers, {}, 'an example for a video says nothing about the maker');
   }
 });
+
+test('kanaalVanLink: the channel a link to a post is on', async () => {
+  const { kanaalVanLink } = await import('../lib/platforms.js');
+  const cases = {
+    'https://www.linkedin.com/posts/olaf_agents-activity-1': 'linkedin', 'https://lnkd.in/abc': 'linkedin', 'https://nl.linkedin.com/feed/update/urn:li:activity:1': 'linkedin',
+    'https://x.com/olaf/status/1': 'x', 'https://twitter.com/olaf/status/1': 'x', 'https://www.threads.com/@olaf/post/1': 'threads', 'https://www.threads.net/@olaf/post/1': 'threads',
+    'https://www.instagram.com/reel/ABC/': 'instagram', 'https://www.tiktok.com/@olaf/video/1': 'tiktok', 'https://vm.tiktok.com/ZM1/': 'tiktok',
+    'https://youtu.be/abc': 'youtube', 'https://www.youtube.com/shorts/abc': 'youtube', 'https://olaf.substack.com/p/agents': 'substack',
+    'https://example.org/x': '', 'geen link': '', '': '',
+  };
+  for (const [url, k] of Object.entries(cases)) assert.equal(kanaalVanLink(url), k, url);
+});

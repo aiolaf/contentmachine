@@ -345,6 +345,18 @@ Een stuk content gaat door drie stappen: **wacht op resultaat**, **klaar om te p
 | TikTok, YouTube | het script met spreektijd en **Zet in Teleprompter**, de caption of beschrijving, titels |
 | Carrousel | elke slide apart, plus de begeleidende post |
 
+
+### Zelf gepost, buiten de app
+
+Schreef je een post zelf en zette je hem rechtstreeks op LinkedIn, X of een ander kanaal, dan zet je hem toch op gepost:
+
+- **In een item:** open **Zelf gepost?** (onder de knoppen voor content). Kies het kanaal, plak eventueel de link naar je post (het kanaal kiest zich dan vanzelf) en de datum, en tik **Zet op gepost**. Stond er al een stuk uit dit item voor dat kanaal klaar, dan krijgt dat de datum en link; anders komt er een nieuw stuk in je Content-archief. Het item gaat naar **Gebruikt**. Ook op een tweede kanaal gepost? Doe het nog een keer met dat kanaal.
+- **Meer items tegelijk:** kies ze in de feed, tik op de map-knop in de balk en kies onder **Zelf gepost, als één post** het kanaal. Dat wordt één stuk met al die items als bron.
+
+Met een link naar een post op X of TikTok haalt de app de cijfers zelf op; voor andere kanalen vul je ze in bij het stuk in je Content-archief. Een link die al in je archief staat, komt er niet nog een keer in. Na elke actie kun je het ongedaan maken.
+
+Een post die je zelf deelt vanuit LinkedIn, X, TikTok, Instagram of Threads herkent de app al als je eigen post (als je je handles invult onder **Mijn kanalen**) en zet hem op gepost.
+
 ### De nieuwsbrief-editor voor Substack
 
 Een nieuwsbrief opent in een eigen editor (**Open in de editor** op het stuk):
