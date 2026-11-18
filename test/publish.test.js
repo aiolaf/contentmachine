@@ -71,12 +71,13 @@ test('result: parts, plain text and what you copy for LinkedIn', () => {
   assert.equal(out.kanaal, 'linkedin');
   assert.deepEqual(out.blokken.map((b) => [b.naam, b.rol]), [['Post', 'post'], ['Andere hook 1', 'keuze'], ['Andere hook 2', 'keuze'], ['Andere hook 3', 'keuze']]);
   const post = out.blokken[0];
-  assert.equal(post.tekst, 'Drie teams lieten een agent hun week plannen.\n\nHet leverde elk een dag per week op. Lees het onderzoek (https://nina-ai.nl/onderzoek).\n\nWat zou jij met die dag doen?\n\n#agents #planning');
+  assert.equal(post.tekst, 'Drie teams lieten een agent hun week plannen.\n\nHet leverde elk een dag per week op. Lees het onderzoek (https://nina-ai.nl/onderzoek).\n\nWat zou jij met die dag doen?');
   assert.equal(post.limiet, 3000);
   assert.equal(post.tel, [...post.tekst].length);
   assert.equal(out.blokken[2].tekst, 'Plannen is geen werk." Dat dachten drie teams ook.', 'quotes around a whole option go');
   assert.equal(withHook(post.tekst, out.blokken[1].tekst).split('\n\n')[0], 'Een dag per week terug, zonder harder te werken.');
-  assert.deepEqual(hashtags(post.tekst), ['#agents', '#planning']);
+  assert.deepEqual(hashtags(post.tekst), [], 'never hashtags in what you copy');
+  assert.ok(post.tekst.endsWith('Wat zou jij met die dag doen?'));
   // What shows before "...more".
   assert.deepEqual(visiblePart('Kort.'), { tekst: 'Kort.', meer: false });
   const long = visiblePart(`${'woord '.repeat(60)}\n\nTweede alinea.`);
@@ -258,4 +259,24 @@ test('kanaalVanLink: the channel a link to a post is on', async () => {
     'https://example.org/x': '', 'geen link': '', '': '',
   };
   for (const [url, k] of Object.entries(cases)) assert.equal(kanaalVanLink(url), k, url);
+});
+
+test('hashtags: never in a prompt, never in what you copy', async () => {
+  const { withoutHashtags } = await import('../lib/platforms.js');
+  const { forSubstack } = await import('../lib/richtext.js');
+  for (const soort of Object.keys(SOORTEN)) {
+    const prompt = buildPrompt({ soort, items: [], instructie: soort === 'vrij' ? 'Iets' : '', stijl: 'Gebruik 3 hashtags.' });
+    assert.match(prompt, /## Geen hashtags\n\nGebruik nooit hashtags/, soort);
+    assert.doesNotMatch(SOORTEN[soort].opdracht, /\d+ (tot \d+ )?(relevante )?hashtags|hashtags?, onderaan|Hooguit één hashtag/, `${soort} asks for none`);
+  }
+  assert.equal(withoutHashtags('Wat denk jij?\n\n#ai #agents #mkb'), 'Wat denk jij?');
+  assert.equal(withoutHashtags('Wat denk jij? #ai #agents'), 'Wat denk jij?');
+  assert.equal(withoutHashtags('Zo helpt #AI het #mkb vandaag.'), 'Zo helpt AI het mkb vandaag.');
+  assert.equal(withoutHashtags('Stap #1 in C# met https://x.com/a#frag (#tip)'), 'Stap #1 in C# met https://x.com/a#frag (tip)');
+  assert.equal(withoutHashtags('Één\n\n#a\n\nTwee'), 'Één\n\nTwee');
+  const ig = outputFor('instagram', '# T\n\nCaption met een vraag?\n\n#reels #ai #agents\n\n## Reel\n\n[beeld] Zeg dit. #ai\n\n## Alternative hooks\n\n- Hook #een\n');
+  assert.ok(ig.blokken.every((b) => !/(^|\s)#\p{L}/u.test(b.tekst)), JSON.stringify(ig.blokken.map((b) => b.tekst)));
+  assert.equal(ig.blokken[0].tekst, 'Caption met een vraag?');
+  const sub = forSubstack('Een alinea over #AI.\n\n#nieuwsbrief #ai');
+  assert.ok(!sub.plain.includes('#') && !sub.html.includes('#'), sub.plain);
 });

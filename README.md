@@ -346,6 +346,10 @@ Een stuk content gaat door drie stappen: **wacht op resultaat**, **klaar om te p
 | Carrousel | elke slide apart, plus de begeleidende post |
 
 
+### Nooit hashtags
+
+Je posts krijgen nooit hashtags. Elke prompt zegt dat expliciet, en dat gaat voor wat je stijlgids of een voorbeeld anders zegt. Glipt er toch een door, dan haalt de app hem eruit bij alles wat je kopieert, opent op een platform of naar de Teleprompter of Substack stuurt: een rij hashtags aan het eind van een regel verdwijnt, een hashtag midden in een zin houdt zijn woord (`#AI helpt` wordt `AI helpt`). `#1`, `C#` en links blijven zoals ze zijn. Dit geldt ook voor wat je eerder al plakte. De hashtags van posts die je bewaart blijven wel gewoon tags in je vault; die gebruikt de app om te ordenen.
+
 ### Zelf gepost, buiten de app
 
 Schreef je een post zelf en zette je hem rechtstreeks op LinkedIn, X of een ander kanaal, dan zet je hem toch op gepost:
